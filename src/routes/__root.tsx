@@ -13,7 +13,7 @@ export const Route = createRootRoute({
       {
         name: "description",
         content:
-          "Экспресс-тест состояния по методике Александры Болдиной: 5 параметров, оценка от 0 до 10.",
+          "Экспресс-тест состояния по методике APGAR: 5 параметров, оценка от 0 до 10.",
       },
     ],
     links: [{ rel: "stylesheet", href: appCss }],
