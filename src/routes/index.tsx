@@ -32,7 +32,7 @@ function Landing() {
           APGAR-тест <span className="text-primary">для взрослых</span>
         </h1>
         <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-          Экспресс-оценка состояния по методике Александры Болдиной. Пять параметров,
+          Экспресс-оценка состояния по методике APGAR. Пять параметров,
           понятная шкала и рекомендации по результатам.
         </p>
 
