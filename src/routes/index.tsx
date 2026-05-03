@@ -32,8 +32,8 @@ function Landing() {
           APGAR-тест <span className="text-primary">для взрослых</span>
         </h1>
         <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
-          Экспресс-оценка состояния по методике APGAR. Пять параметров,
-          понятная шкала и рекомендации по результатам.
+          Экспресс-тест вашего стрессового состояния по методике APGAR. 5 параметров,
+          каждый оценивается от 0 до 2. Максимум 10 баллов.
         </p>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
