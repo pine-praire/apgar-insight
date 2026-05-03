@@ -1,0 +1,112 @@
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth";
+import { APGAR_QUESTIONS, getVerdict, type ApgarKey } from "@/lib/apgar";
+
+export const Route = createFileRoute("/result/$id")({
+  component: ResultPage,
+});
+
+function ResultPage() {
+  const { id } = Route.useParams();
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+  const [data, setData] = useState<{
+    score: number;
+    scores: Record<ApgarKey, number>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!loading && !user) navigate({ to: "/auth", search: { mode: "login" } });
+  }, [loading, user, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("apgar_results")
+      .select("score, scores")
+      .eq("id", id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setData(data as { score: number; scores: Record<ApgarKey, number> });
+      });
+  }, [id, user]);
+
+  if (!data) return null;
+  const v = getVerdict(data.score);
+  const accent =
+    v.level === "good"
+      ? "var(--success)"
+      : v.level === "warning"
+        ? "var(--warning)"
+        : "var(--destructive)";
+
+  return (
+    <div className="min-h-screen px-4 py-12" style={{ background: "var(--gradient-soft)" }}>
+      <div className="mx-auto max-w-2xl">
+        <div
+          className="rounded-2xl border bg-card p-10 text-center"
+          style={{ boxShadow: "var(--shadow-elegant)" }}
+        >
+          <p className="text-sm uppercase tracking-wider text-muted-foreground">
+            Ваш результат
+          </p>
+          <div
+            className="mt-4 text-8xl font-bold"
+            style={{ color: accent }}
+          >
+            {data.score}
+            <span className="text-3xl text-muted-foreground">/10</span>
+          </div>
+          <h2 className="mt-4 text-2xl font-bold">{v.title}</h2>
+          <p className="mt-3 text-muted-foreground">{v.description}</p>
+        </div>
+
+        <div className="mt-6 rounded-2xl border bg-card p-6">
+          <h3 className="font-semibold">Расшифровка по параметрам</h3>
+          <ul className="mt-4 space-y-3">
+            {APGAR_QUESTIONS.map((q) => {
+              const val = data.scores[q.key] ?? 0;
+              const opt = q.options.find((o) => o.value === val);
+              return (
+                <li key={q.key} className="flex items-start gap-3 border-t pt-3 first:border-0 first:pt-0">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent font-bold text-primary">
+                    {q.letter}
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-medium">{q.title}</p>
+                    <p className="text-sm text-muted-foreground">{opt?.label}</p>
+                  </div>
+                  <span
+                    className="text-2xl font-bold"
+                    style={{
+                      color:
+                        val === 2
+                          ? "var(--success)"
+                          : val === 1
+                            ? "var(--warning)"
+                            : "var(--destructive)",
+                    }}
+                  >
+                    {val}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          <Button asChild className="flex-1">
+            <Link to="/test">Пройти снова</Link>
+          </Button>
+          <Button asChild variant="outline" className="flex-1">
+            <Link to="/dashboard">На главную</Link>
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
