@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { APGAR_QUESTIONS, type ApgarKey } from "@/lib/apgar";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -38,6 +39,15 @@ function TestPage() {
     }
     // submit
     setSubmitting(true);
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      setSubmitting(false);
+      toast.error("Сессия истекла. Войдите снова.");
+      navigate({ to: "/auth", search: { mode: "login" } });
+      return;
+    }
+
     const score = APGAR_QUESTIONS.reduce((sum, qq) => sum + (answers[qq.key] ?? 0), 0);
     const scores = APGAR_QUESTIONS.reduce<Record<string, number>>((acc, qq) => {
       acc[qq.key] = answers[qq.key] ?? 0;
@@ -45,12 +55,13 @@ function TestPage() {
     }, {});
     const { data, error } = await supabase
       .from("apgar_results")
-      .insert({ user_id: user.id, score, scores })
+      .insert({ user_id: sessionData.session.user.id, score, scores: scores as Json })
       .select("id")
       .single();
     setSubmitting(false);
     if (error) {
-      toast.error("Не удалось сохранить");
+      console.error("[apgar_results insert]", error);
+      toast.error(`Не удалось сохранить: ${error.message}`);
       return;
     }
     navigate({ to: "/result/$id", params: { id: data.id } });
