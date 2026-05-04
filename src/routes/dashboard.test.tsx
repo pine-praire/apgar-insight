@@ -56,7 +56,7 @@ interface Result {
 
 function Dashboard() {
   const { supabase } = { supabase: { from: mockFrom, auth: { signOut: mockSignOut } } };
-  const { user, loading, displayName } = mockUseAuth();
+  const { user, loading, displayName, isAdmin } = mockUseAuth();
   const [results, setResults] = useState<Result[]>([]);
   const [loadingResults, setLoadingResults] = useState(true);
 
@@ -78,6 +78,7 @@ function Dashboard() {
   return (
     <div>
       <h1>{displayName || user.email}</h1>
+      {isAdmin && <a href="/admin" aria-label="Администрирование">admin</a>}
       <a href="/test">Пройти тест</a>
       <section aria-label="История прохождений">
         <h2>История прохождений</h2>
@@ -111,6 +112,7 @@ beforeEach(() => {
     user: { id: "user-123", email: "test@example.com" },
     loading: false,
     displayName: "Тест Юзер",
+    isAdmin: false,
   });
 });
 
@@ -211,5 +213,38 @@ describe("Dashboard — history of results", () => {
     await waitFor(() => {
       expect(screen.getByText(/рутинная поддержка/i)).toBeInTheDocument();
     });
+  });
+});
+
+describe("Dashboard — admin link", () => {
+  it("does NOT show admin link for regular user", () => {
+    mockFrom.mockReturnValue(makeChain([]));
+    render(<Dashboard />);
+    expect(screen.queryByRole("link", { name: /администрирование/i })).not.toBeInTheDocument();
+  });
+
+  it("shows admin link when isAdmin=true", () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-123", email: "admin@example.com" },
+      loading: false,
+      displayName: "Admin",
+      isAdmin: true,
+    });
+    mockFrom.mockReturnValue(makeChain([]));
+    render(<Dashboard />);
+    expect(screen.getByRole("link", { name: /администрирование/i })).toBeInTheDocument();
+  });
+
+  it("admin link points to /admin", () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: "user-123", email: "admin@example.com" },
+      loading: false,
+      displayName: "Admin",
+      isAdmin: true,
+    });
+    mockFrom.mockReturnValue(makeChain([]));
+    render(<Dashboard />);
+    const link = screen.getByRole("link", { name: /администрирование/i });
+    expect(link).toHaveAttribute("href", "/admin");
   });
 });
