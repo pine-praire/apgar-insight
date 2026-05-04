@@ -14,24 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      user_roles: {
-        Row: {
-          user_id: string
-          role: string
-          created_at: string
-        }
-        Insert: {
-          user_id: string
-          role: string
-          created_at?: string
-        }
-        Update: {
-          user_id?: string
-          role?: string
-          created_at?: string
-        }
-        Relationships: []
-      }
       apgar_results: {
         Row: {
           created_at: string
@@ -74,19 +56,37 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       get_admin_users: {
-        Args: Record<string, never>
-        Returns: Array<{
-          id: string
-          email: string
-          display_name: string | null
+        Args: never
+        Returns: {
           created_at: string
-        }>
+          display_name: string
+          email: string
+          id: string
+        }[]
       }
     }
     Enums: {
