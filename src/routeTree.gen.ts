@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TestRouteImport } from './routes/test'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as ProcrastinationRouteImport } from './routes/procrastination'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -18,6 +19,11 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ResultIdRouteImport } from './routes/result.$id'
 
+const ProcrastinationRoute = ProcrastinationRouteImport.update({
+  id: '/procrastination',
+  path: '/procrastination',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TestRoute = TestRouteImport.update({
   id: '/test',
   path: '/test',
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/privacy': typeof PrivacyRoute
+  '/procrastination': typeof ProcrastinationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/test': typeof TestRoute
   '/result/$id': typeof ResultIdRoute
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/privacy': typeof PrivacyRoute
+  '/procrastination': typeof ProcrastinationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/test': typeof TestRoute
   '/result/$id': typeof ResultIdRoute
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/privacy': typeof PrivacyRoute
+  '/procrastination': typeof ProcrastinationRoute
   '/reset-password': typeof ResetPasswordRoute
   '/test': typeof TestRoute
   '/result/$id': typeof ResultIdRoute
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/privacy'
+    | '/procrastination'
     | '/reset-password'
     | '/test'
     | '/result/$id'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/privacy'
+    | '/procrastination'
     | '/reset-password'
     | '/test'
     | '/result/$id'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/privacy'
+    | '/procrastination'
     | '/reset-password'
     | '/test'
     | '/result/$id'
@@ -129,6 +141,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   DashboardRoute: typeof DashboardRoute
   PrivacyRoute: typeof PrivacyRoute
+  ProcrastinationRoute: typeof ProcrastinationRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   TestRoute: typeof TestRoute
   ResultIdRoute: typeof ResultIdRoute
@@ -136,6 +149,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/procrastination': {
+      id: '/procrastination'
+      path: '/procrastination'
+      fullPath: '/procrastination'
+      preLoaderRoute: typeof ProcrastinationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/test': {
       id: '/test'
       path: '/test'
@@ -201,6 +221,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   DashboardRoute: DashboardRoute,
   PrivacyRoute: PrivacyRoute,
+  ProcrastinationRoute: ProcrastinationRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   TestRoute: TestRoute,
   ResultIdRoute: ResultIdRoute,
