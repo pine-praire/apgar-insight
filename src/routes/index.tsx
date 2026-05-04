@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
-import { Activity } from "lucide-react";
+import { Brain } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -26,7 +26,7 @@ function Landing() {
           className="mb-8 flex h-16 w-16 items-center justify-center rounded-2xl text-primary-foreground"
           style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-elegant)" }}
         >
-          <Activity className="h-8 w-8" />
+          <Brain className="h-8 w-8" />
         </div>
         <h1 className="text-5xl font-bold tracking-tight md:text-6xl">
           САМОВЫВОЗ
