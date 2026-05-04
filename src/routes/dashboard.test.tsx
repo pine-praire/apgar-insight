@@ -51,14 +51,12 @@ const makeApgarChain = (data: unknown) => {
   return c;
 };
 
-// Chain for procrastination_results: .select().eq().order().limit().maybeSingle() → resolves
+// Chain for procrastination_results: .select().eq().order() → resolves with array
 const makeProcChain = (data: unknown) => {
   const c: Record<string, unknown> = {};
   c.select = vi.fn().mockReturnValue(c);
   c.eq = vi.fn().mockReturnValue(c);
-  c.order = vi.fn().mockReturnValue(c);
-  c.limit = vi.fn().mockReturnValue(c);
-  c.maybeSingle = vi.fn().mockResolvedValue({ data, error: null });
+  c.order = vi.fn().mockResolvedValue({ data, error: null });
   return c;
 };
 
@@ -70,20 +68,22 @@ interface ProcResult { id: string; types: string[]; created_at: string }
 function Dashboard() {
   const { user, loading, displayName, isAdmin } = mockUseAuth();
   const [results, setResults] = useState<ApgarResult[]>([]);
+  const [procResults, setProcResults] = useState<ProcResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(true);
-  const [lastProcrastination, setLastProcrastination] = useState<ProcResult | null>(null);
 
   useEffect(() => {
     if (!user) return;
     Promise.all([
       mockFrom("apgar_results").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
-      mockFrom("procrastination_results").select("id, types, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ]).then(([apgarRes, procRes]: [{ data: ApgarResult[] | null }, { data: ProcResult | null }]) => {
+      mockFrom("procrastination_results").select("id, types, created_at").eq("user_id", user.id).order("created_at", { ascending: false }),
+    ]).then(([apgarRes, procRes]: [{ data: ApgarResult[] | null }, { data: ProcResult[] | null }]) => {
       setResults(apgarRes.data ?? []);
-      setLastProcrastination(procRes.data ?? null);
+      setProcResults(procRes.data ?? []);
       setLoadingResults(false);
     });
   }, [user]);
+
+  const lastProcrastination = procResults[0] ?? null;
 
   if (loading || !user) return null;
 
@@ -158,7 +158,7 @@ beforeEach(() => {
   });
   // Default: no procrastination result, no APGAR results
   mockFrom.mockImplementation((table: string) => {
-    if (table === "procrastination_results") return makeProcChain(null);
+    if (table === "procrastination_results") return makeProcChain([]);
     return makeApgarChain([]);
   });
 });
@@ -213,7 +213,7 @@ describe("Dashboard — procrastination card (has previous result)", () => {
   beforeEach(() => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "procrastination_results")
-        return makeProcChain(makeProcResult(["cleaner"]));
+        return makeProcChain([makeProcResult(["cleaner"])]);
       return makeApgarChain([]);
     });
   });
@@ -254,7 +254,7 @@ describe("Dashboard — procrastination card (has previous result)", () => {
   it("shows both emojis when two types tied", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "procrastination_results")
-        return makeProcChain(makeProcResult(["cleaner", "panicker"]));
+        return makeProcChain([makeProcResult(["cleaner", "panicker"])]);
       return makeApgarChain([]);
     });
     render(<Dashboard />);
@@ -266,7 +266,7 @@ describe("Dashboard — procrastination card (has previous result)", () => {
   it("shows 'Type1 + Type2' title for tied result", async () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === "procrastination_results")
-        return makeProcChain(makeProcResult(["cleaner", "panicker"]));
+        return makeProcChain([makeProcResult(["cleaner", "panicker"])]);
       return makeApgarChain([]);
     });
     render(<Dashboard />);
@@ -345,7 +345,7 @@ describe("Dashboard — APGAR history", () => {
   });
 
   it("fetches procrastination results scoped to user_id", async () => {
-    const procChain = makeProcChain(null);
+    const procChain = makeProcChain([]);
     mockFrom.mockImplementation((table: string) => {
       if (table === "procrastination_results") return procChain;
       return makeApgarChain([]);
