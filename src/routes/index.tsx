@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
-import { Activity, Heart, Sparkles } from "lucide-react";
+import { Activity } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -46,23 +46,6 @@ function Landing() {
           </Button>
         </div>
 
-        <div className="mt-20 grid w-full gap-6 md:grid-cols-3">
-          {[
-            { icon: Sparkles, title: "5 параметров", text: "A · P · G · A · R — комплексный взгляд" },
-            { icon: Heart, title: "0–10 баллов", text: "Понятная шкала с расшифровкой" },
-            { icon: Activity, title: "История", text: "Отслеживайте динамику со временем" },
-          ].map(({ icon: Icon, title, text }) => (
-            <div
-              key={title}
-              className="rounded-2xl border bg-card p-6 text-left"
-              style={{ boxShadow: "var(--shadow-soft)" }}
-            >
-              <Icon className="h-6 w-6 text-primary" />
-              <h3 className="mt-4 font-semibold">{title}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{text}</p>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
