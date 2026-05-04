@@ -98,7 +98,7 @@ function Dashboard() {
               APGAR-тест
             </p>
             <h2 className="mt-2 text-lg font-semibold leading-tight">
-              Оцените стресс в семье
+              Оцените свой стресс
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               5 вопросов · около 2 минут
