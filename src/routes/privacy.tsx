@@ -4,7 +4,7 @@ export const Route = createFileRoute("/privacy")({
   component: PrivacyPage,
 });
 
-function PrivacyPage() {
+export function PrivacyPage() {
   return (
     <div
       className="min-h-screen px-4 py-16"
@@ -19,7 +19,7 @@ function PrivacyPage() {
         </Link>
 
         <h1 className="mt-6 text-3xl font-bold">Политика конфиденциальности</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Последнее обновление: 4 мая 2025 г.</p>
+        <p className="mt-2 text-sm text-muted-foreground">Последнее обновление: 4 мая 2026 г.</p>
 
         <div className="mt-8 space-y-8 text-sm leading-relaxed text-foreground">
           <section>
