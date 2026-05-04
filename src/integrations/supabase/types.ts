@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      user_roles: {
+        Row: {
+          user_id: string
+          role: string
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          role: string
+          created_at?: string
+        }
+        Update: {
+          user_id?: string
+          role?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
       apgar_results: {
         Row: {
           created_at: string
@@ -61,7 +79,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_admin_users: {
+        Args: Record<string, never>
+        Returns: Array<{
+          id: string
+          email: string
+          display_name: string | null
+          created_at: string
+        }>
+      }
     }
     Enums: {
       [_ in never]: never

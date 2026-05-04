@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import { getVerdict } from "@/lib/apgar";
-import { LogOut, Plus } from "lucide-react";
+import { LogOut, Plus, Shield } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: Dashboard,
@@ -18,7 +18,7 @@ interface Result {
 }
 
 function Dashboard() {
-  const { user, loading, displayName } = useAuth();
+  const { user, loading, displayName, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [results, setResults] = useState<Result[]>([]);
   const [loadingResults, setLoadingResults] = useState(true);
@@ -55,9 +55,18 @@ function Dashboard() {
             <p className="text-sm text-muted-foreground">Здравствуйте,</p>
             <h1 className="text-3xl font-bold">{displayName || user.email}</h1>
           </div>
-          <Button variant="ghost" size="icon" onClick={logout} aria-label="Выйти">
-            <LogOut className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {isAdmin && (
+              <Button asChild variant="ghost" size="icon" aria-label="Администрирование">
+                <Link to="/admin">
+                  <Shield className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={logout} aria-label="Выйти">
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         <div
