@@ -32,10 +32,6 @@ function Landing() {
           САМОВЫВОЗ
         </h1>
         <p className="mt-3 text-xl font-medium text-primary">Тесты, трекеры, подсказки</p>
-        <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
-          Экспресс-тест вашего стрессового состояния по методике APGAR. 5 параметров,
-          каждый оценивается от 0 до 2. Максимум 10 баллов.
-        </p>
 
         <div className="mt-10 flex flex-col gap-3 sm:flex-row">
           <Button asChild size="lg" className="px-8">
