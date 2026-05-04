@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import React, { useEffect, useState } from "react";
 import { getVerdict } from "@/lib/apgar";
 import { PROCRASTINATION_TYPES, type ProcrastinationType } from "@/lib/procrastination";
@@ -121,6 +121,42 @@ function Dashboard() {
         )}
       </section>
 
+      {/* Advice panel */}
+      <section aria-label="Рекомендации">
+        <h2>Рекомендации</h2>
+        {!results[0] && !procResults[0] ? (
+          <p data-testid="advice-empty">Пройдите хотя бы один тест, чтобы получить персональные рекомендации.</p>
+        ) : (
+          <div>
+            {results[0] && (() => {
+              const v = getVerdict(results[0].score);
+              return (
+                <div data-testid="apgar-advice">
+                  <span data-testid="advice-score">{results[0].score}</span>
+                  <span data-testid="advice-verdict">{v.short}</span>
+                  <p data-testid="advice-description">{v.description}</p>
+                </div>
+              );
+            })()}
+            {procResults[0] && (() => {
+              const types = procResults[0].types as ProcrastinationType[];
+              const info = PROCRASTINATION_TYPES[types[0]];
+              return (
+                <div data-testid="proc-advice">
+                  <span data-testid="advice-proc-emoji">{info.emoji}</span>
+                  <span data-testid="advice-proc-title">
+                    {types.map((t) => PROCRASTINATION_TYPES[t].title).join(" + ")}
+                  </span>
+                  {info.tools.map((tool, i) => (
+                    <p key={i} data-testid="advice-tool">{tool}</p>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </section>
+
       {/* APGAR history */}
       <section aria-label="История прохождений">
         <h2>История APGAR</h2>
@@ -136,6 +172,32 @@ function Dashboard() {
                 <li key={r.id}>
                   <span data-testid={`score-${r.id}`}>{r.score}</span>
                   <span>{v.short}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Procrastination history */}
+      <section aria-label="История прокрастинатора">
+        <h2>История типа прокрастинатора</h2>
+        {loadingResults ? (
+          <p>Загрузка...</p>
+        ) : procResults.length === 0 ? (
+          <p data-testid="proc-history-empty">Пока нет результатов — пройдите тест!</p>
+        ) : (
+          <ul>
+            {procResults.map((r) => {
+              const types = r.types as ProcrastinationType[];
+              return (
+                <li key={r.id}>
+                  <span data-testid="proc-history-emoji">
+                    {types.map((t) => PROCRASTINATION_TYPES[t]?.emoji).join("")}
+                  </span>
+                  <span data-testid="proc-history-title">
+                    {types.map((t) => PROCRASTINATION_TYPES[t]?.title).join(" + ")}
+                  </span>
                 </li>
               );
             })}
@@ -283,36 +345,39 @@ describe("Dashboard — procrastination card (has previous result)", () => {
 describe("Dashboard — APGAR history", () => {
   it("shows 'Загрузка...' initially", () => {
     mockFrom.mockImplementation((table: string) => {
-      if (table === "procrastination_results") return makeProcChain(null);
+      if (table === "procrastination_results") return makeProcChain([]);
       const c = makeApgarChain(null);
       (c as Record<string, unknown>).order = vi.fn().mockReturnValue(new Promise(() => {}));
       return c;
     });
     render(<Dashboard />);
-    expect(screen.getByText(/загрузка/i)).toBeInTheDocument();
+    const section = screen.getByRole("region", { name: "История прохождений" });
+    expect(within(section).getByText(/загрузка/i)).toBeInTheDocument();
   });
 
   it("shows empty-state message when user has no APGAR results", async () => {
     render(<Dashboard />);
     await waitFor(() => {
-      expect(screen.getByText(/пока нет результатов/i)).toBeInTheDocument();
+      const section = screen.getByRole("region", { name: "История прохождений" });
+      expect(within(section).getByText(/пока нет результатов/i)).toBeInTheDocument();
     });
   });
 
   it("renders a list item for each APGAR result", async () => {
     mockFrom.mockImplementation((table: string) => {
-      if (table === "procrastination_results") return makeProcChain(null);
+      if (table === "procrastination_results") return makeProcChain([]);
       return makeApgarChain([makeApgarResult("r1", 10), makeApgarResult("r2", 5)]);
     });
     render(<Dashboard />);
     await waitFor(() => {
-      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      const section = screen.getByRole("region", { name: "История прохождений" });
+      expect(within(section).getAllByRole("listitem")).toHaveLength(2);
     });
   });
 
   it("displays correct score for each result", async () => {
     mockFrom.mockImplementation((table: string) => {
-      if (table === "procrastination_results") return makeProcChain(null);
+      if (table === "procrastination_results") return makeProcChain([]);
       return makeApgarChain([makeApgarResult("r1", 10), makeApgarResult("r2", 5)]);
     });
     render(<Dashboard />);
@@ -322,25 +387,29 @@ describe("Dashboard — APGAR history", () => {
     });
   });
 
-  it("shows 'Рутинная поддержка' for score 10", async () => {
+  it("shows 'Рутинная поддержка' in APGAR history for score 10", async () => {
     mockFrom.mockImplementation((table: string) => {
-      if (table === "procrastination_results") return makeProcChain(null);
+      if (table === "procrastination_results") return makeProcChain([]);
       return makeApgarChain([makeApgarResult("r1", 10)]);
     });
     render(<Dashboard />);
     await waitFor(() => {
-      expect(screen.getByText(/рутинная поддержка/i)).toBeInTheDocument();
+      const section = screen.getByRole("region", { name: "История прохождений" });
+      expect(within(section).getByText(/рутинная поддержка/i)).toBeInTheDocument();
     });
   });
 
   it("fetches APGAR results scoped to user_id", async () => {
     const chain = makeApgarChain([]);
     mockFrom.mockImplementation((table: string) => {
-      if (table === "procrastination_results") return makeProcChain(null);
+      if (table === "procrastination_results") return makeProcChain([]);
       return chain;
     });
     render(<Dashboard />);
-    await waitFor(() => screen.getByText(/нет результатов/i));
+    await waitFor(() => {
+      const section = screen.getByRole("region", { name: "История прохождений" });
+      within(section).getByText(/нет результатов/i);
+    });
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-123");
   });
 
@@ -351,8 +420,218 @@ describe("Dashboard — APGAR history", () => {
       return makeApgarChain([]);
     });
     render(<Dashboard />);
-    await waitFor(() => screen.getByText(/нет результатов/i));
+    await waitFor(() => {
+      const section = screen.getByRole("region", { name: "История прокрастинатора" });
+      within(section).getByText(/нет результатов/i);
+    });
     expect(procChain.eq).toHaveBeenCalledWith("user_id", "user-123");
+  });
+});
+
+// ── Advice panel ─────────────────────────────────────────────────────────────
+
+describe("Dashboard — advice panel", () => {
+  it("shows empty-state when no tests taken", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-empty")).toBeInTheDocument();
+    });
+  });
+
+  it("does NOT show empty-state when has APGAR result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([]);
+      return makeApgarChain([makeApgarResult("r1", 10)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.queryByTestId("advice-empty")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows APGAR advice block when has APGAR result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([]);
+      return makeApgarChain([makeApgarResult("r1", 10)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("apgar-advice")).toBeInTheDocument();
+    });
+  });
+
+  it("advice shows correct APGAR score", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([]);
+      return makeApgarChain([makeApgarResult("r1", 8)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-score").textContent).toBe("8");
+    });
+  });
+
+  it("advice shows verdict label for APGAR score", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([]);
+      return makeApgarChain([makeApgarResult("r1", 10)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-verdict").textContent).toMatch(/рутинная поддержка/i);
+    });
+  });
+
+  it("advice shows verdict description text", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([]);
+      return makeApgarChain([makeApgarResult("r1", 3)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-description").textContent?.length).toBeGreaterThan(10);
+    });
+  });
+
+  it("shows procrastination advice block when has proc result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([makeProcResult(["cleaner"])]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-advice")).toBeInTheDocument();
+    });
+  });
+
+  it("proc advice shows type emoji", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([makeProcResult(["cleaner"])]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-proc-emoji").textContent).toBe(
+        PROCRASTINATION_TYPES["cleaner"].emoji,
+      );
+    });
+  });
+
+  it("proc advice shows type title", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([makeProcResult(["panicker"])]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("advice-proc-title").textContent).toBe(
+        PROCRASTINATION_TYPES["panicker"].title,
+      );
+    });
+  });
+
+  it("proc advice shows exactly 3 tools", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([makeProcResult(["cleaner"])]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("advice-tool")).toHaveLength(3);
+    });
+  });
+
+  it("shows both APGAR and proc advice when both tests taken", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain([makeProcResult(["timer"])]);
+      return makeApgarChain([makeApgarResult("r1", 7)]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("apgar-advice")).toBeInTheDocument();
+      expect(screen.getByTestId("proc-advice")).toBeInTheDocument();
+    });
+  });
+});
+
+// ── Procrastination history ───────────────────────────────────────────────────
+
+describe("Dashboard — procrastination history", () => {
+  it("renders procrastination history heading", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("История типа прокрастинатора")).toBeInTheDocument();
+    });
+  });
+
+  it("shows empty-state when no proc results", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-history-empty")).toBeInTheDocument();
+    });
+  });
+
+  it("renders a list item for each procrastination result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain([
+          { id: "p1", types: ["cleaner"], created_at: new Date().toISOString() },
+          { id: "p2", types: ["panicker"], created_at: new Date().toISOString() },
+        ]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("proc-history-emoji")).toHaveLength(2);
+    });
+  });
+
+  it("shows correct emoji for each history item", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain([
+          { id: "p1", types: ["cleaner"], created_at: new Date().toISOString() },
+        ]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-history-emoji").textContent).toBe(
+        PROCRASTINATION_TYPES["cleaner"].emoji,
+      );
+    });
+  });
+
+  it("shows correct title for each history item", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain([
+          { id: "p1", types: ["sleeper"], created_at: new Date().toISOString() },
+        ]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-history-title").textContent).toBe(
+        PROCRASTINATION_TYPES["sleeper"].title,
+      );
+    });
+  });
+
+  it("shows combined title for tied result in history", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain([
+          { id: "p1", types: ["cleaner", "panicker"], created_at: new Date().toISOString() },
+        ]);
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-history-title").textContent).toBe(
+        `${PROCRASTINATION_TYPES["cleaner"].title} + ${PROCRASTINATION_TYPES["panicker"].title}`,
+      );
+    });
   });
 });
 

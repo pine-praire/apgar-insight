@@ -62,7 +62,7 @@ export function ApgarCircle({ results }: ApgarCircleProps) {
 
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 300 300" className="w-full max-w-[280px]" aria-label="APGAR calendar">
+      <svg viewBox="0 0 300 300" className="w-full max-w-[280px]" role="img" aria-label="APGAR calendar">
         {Array.from({ length: daysInMonth }, (_, i) => {
           const day = i + 1;
           const start = i * anglePerDay + gap;
