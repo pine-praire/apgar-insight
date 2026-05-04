@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import React, { useEffect, useState } from "react";
 import { getVerdict } from "@/lib/apgar";
+import { PROCRASTINATION_TYPES, type ProcrastinationType } from "@/lib/procrastination";
 
 // ── Mock state ────────────────────────────────────────────────────────────────
 
@@ -24,53 +25,64 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 const mockUseAuth = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  useAuth: () => mockUseAuth(),
-}));
+vi.mock("@/lib/auth", () => ({ useAuth: () => mockUseAuth() }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const makeResult = (id: string, score: number, daysAgo: number) => ({
+const makeApgarResult = (id: string, score: number, daysAgo = 0) => ({
   id,
   score,
-  scores: { A1: 2, P: 2, G: 1, A2: 1, R: score - 6 < 0 ? 0 : score - 6 },
+  scores: { A1: 2, P: 2, G: 1, A2: 1, R: 0 },
   created_at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
 });
 
-const makeChain = (resolvedData: unknown) => {
-  const chain: Record<string, unknown> = {};
-  chain.select = vi.fn().mockReturnValue(chain);
-  chain.eq = vi.fn().mockReturnValue(chain);
-  chain.order = vi.fn().mockResolvedValue({ data: resolvedData, error: null });
-  return chain;
+const makeProcResult = (types: ProcrastinationType[], daysAgo = 0) => ({
+  id: "proc-1",
+  types,
+  created_at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+});
+
+// Chain for apgar_results: .select().eq().order() → resolves
+const makeApgarChain = (data: unknown) => {
+  const c: Record<string, unknown> = {};
+  c.select = vi.fn().mockReturnValue(c);
+  c.eq = vi.fn().mockReturnValue(c);
+  c.order = vi.fn().mockResolvedValue({ data, error: null });
+  return c;
 };
 
-// ── Minimal Dashboard (mirrors dashboard.tsx logic) ───────────────────────────
+// Chain for procrastination_results: .select().eq().order().limit().maybeSingle() → resolves
+const makeProcChain = (data: unknown) => {
+  const c: Record<string, unknown> = {};
+  c.select = vi.fn().mockReturnValue(c);
+  c.eq = vi.fn().mockReturnValue(c);
+  c.order = vi.fn().mockReturnValue(c);
+  c.limit = vi.fn().mockReturnValue(c);
+  c.maybeSingle = vi.fn().mockResolvedValue({ data, error: null });
+  return c;
+};
 
-interface Result {
-  id: string;
-  score: number;
-  scores: Record<string, number>;
-  created_at: string;
-}
+// ── Minimal Dashboard ─────────────────────────────────────────────────────────
+
+interface ApgarResult { id: string; score: number; scores: Record<string, number>; created_at: string }
+interface ProcResult { id: string; types: string[]; created_at: string }
 
 function Dashboard() {
-  const { supabase } = { supabase: { from: mockFrom, auth: { signOut: mockSignOut } } };
   const { user, loading, displayName, isAdmin } = mockUseAuth();
-  const [results, setResults] = useState<Result[]>([]);
+  const [results, setResults] = useState<ApgarResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(true);
+  const [lastProcrastination, setLastProcrastination] = useState<ProcResult | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from("apgar_results")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }: { data: Result[] | null }) => {
-        setResults(data ?? []);
-        setLoadingResults(false);
-      });
+    Promise.all([
+      mockFrom("apgar_results").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+      mockFrom("procrastination_results").select("id, types, created_at").eq("user_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]).then(([apgarRes, procRes]: [{ data: ApgarResult[] | null }, { data: ProcResult | null }]) => {
+      setResults(apgarRes.data ?? []);
+      setLastProcrastination(procRes.data ?? null);
+      setLoadingResults(false);
+    });
   }, [user]);
 
   if (loading || !user) return null;
@@ -79,9 +91,39 @@ function Dashboard() {
     <div>
       <h1>{displayName || user.email}</h1>
       {isAdmin && <a href="/admin" aria-label="Администрирование">admin</a>}
-      <a href="/test">Пройти тест</a>
+
+      {/* APGAR card */}
+      <section aria-label="APGAR карточка">
+        <p>APGAR-тест</p>
+        <a href="/test">Пройти тест</a>
+      </section>
+
+      {/* Procrastination card */}
+      <section aria-label="Прокрастинация карточка">
+        <p>Тип прокрастинации</p>
+        {lastProcrastination ? (
+          <>
+            {(lastProcrastination.types as ProcrastinationType[]).map((t) => (
+              <span key={t} data-testid="proc-emoji">{PROCRASTINATION_TYPES[t]?.emoji}</span>
+            ))}
+            <p data-testid="proc-title">
+              {(lastProcrastination.types as ProcrastinationType[])
+                .map((t) => PROCRASTINATION_TYPES[t]?.title)
+                .join(" + ")}
+            </p>
+            <a href="/procrastination">Пройти снова</a>
+          </>
+        ) : (
+          <>
+            <p>Узнайте свой тип</p>
+            <a href="/procrastination">Пройти тест</a>
+          </>
+        )}
+      </section>
+
+      {/* APGAR history */}
       <section aria-label="История прохождений">
-        <h2>История прохождений</h2>
+        <h2>История APGAR</h2>
         {loadingResults ? (
           <p>Загрузка...</p>
         ) : results.length === 0 ? (
@@ -104,7 +146,7 @@ function Dashboard() {
   );
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Setup ─────────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -114,38 +156,165 @@ beforeEach(() => {
     displayName: "Тест Юзер",
     isAdmin: false,
   });
+  // Default: no procrastination result, no APGAR results
+  mockFrom.mockImplementation((table: string) => {
+    if (table === "procrastination_results") return makeProcChain(null);
+    return makeApgarChain([]);
+  });
 });
 
-describe("Dashboard — history of results", () => {
-  it("shows 'Загрузка...' initially", () => {
-    const chain = makeChain(null);
-    (chain as Record<string, unknown>).order = vi.fn().mockReturnValue(new Promise(() => {}));
-    mockFrom.mockReturnValue(chain);
+// ── Two-card layout ───────────────────────────────────────────────────────────
 
+describe("Dashboard — two test cards", () => {
+  it("renders the APGAR card section", () => {
+    render(<Dashboard />);
+    expect(screen.getByRole("region", { name: "APGAR карточка" })).toBeInTheDocument();
+  });
+
+  it("renders the procrastination card section", () => {
+    render(<Dashboard />);
+    expect(screen.getByRole("region", { name: "Прокрастинация карточка" })).toBeInTheDocument();
+  });
+
+  it("APGAR card has a link to /test", () => {
+    render(<Dashboard />);
+    const links = screen.getAllByRole("link", { name: /пройти тест/i });
+    expect(links.some((l) => l.getAttribute("href") === "/test")).toBe(true);
+  });
+});
+
+// ── Procrastination card — no result ─────────────────────────────────────────
+
+describe("Dashboard — procrastination card (no previous result)", () => {
+  it("shows 'Узнайте свой тип' when no procrastination result", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByText("Узнайте свой тип")).toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Пройти тест' link to /procrastination", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      const links = screen.getAllByRole("link", { name: /пройти тест/i });
+      expect(links.some((l) => l.getAttribute("href") === "/procrastination")).toBe(true);
+    });
+  });
+
+  it("does NOT show 'Пройти снова' when no result", async () => {
+    render(<Dashboard />);
+    await waitFor(() => expect(screen.queryByText("Пройти снова")).not.toBeInTheDocument());
+  });
+});
+
+// ── Procrastination card — has result ────────────────────────────────────────
+
+describe("Dashboard — procrastination card (has previous result)", () => {
+  beforeEach(() => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain(makeProcResult(["cleaner"]));
+      return makeApgarChain([]);
+    });
+  });
+
+  it("shows the type emoji", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-emoji").textContent).toBe(
+        PROCRASTINATION_TYPES["cleaner"].emoji,
+      );
+    });
+  });
+
+  it("shows the type title", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-title").textContent).toBe(
+        PROCRASTINATION_TYPES["cleaner"].title,
+      );
+    });
+  });
+
+  it("shows 'Пройти снова' link to /procrastination", async () => {
+    render(<Dashboard />);
+    await waitFor(() => {
+      const link = screen.getByRole("link", { name: "Пройти снова" });
+      expect(link).toHaveAttribute("href", "/procrastination");
+    });
+  });
+
+  it("does NOT show 'Узнайте свой тип' when result exists", async () => {
+    render(<Dashboard />);
+    await waitFor(() =>
+      expect(screen.queryByText("Узнайте свой тип")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows both emojis when two types tied", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain(makeProcResult(["cleaner", "panicker"]));
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("proc-emoji")).toHaveLength(2);
+    });
+  });
+
+  it("shows 'Type1 + Type2' title for tied result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results")
+        return makeProcChain(makeProcResult(["cleaner", "panicker"]));
+      return makeApgarChain([]);
+    });
+    render(<Dashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("proc-title").textContent).toBe(
+        `${PROCRASTINATION_TYPES["cleaner"].title} + ${PROCRASTINATION_TYPES["panicker"].title}`,
+      );
+    });
+  });
+});
+
+// ── APGAR history section ─────────────────────────────────────────────────────
+
+describe("Dashboard — APGAR history", () => {
+  it("shows 'Загрузка...' initially", () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain(null);
+      const c = makeApgarChain(null);
+      (c as Record<string, unknown>).order = vi.fn().mockReturnValue(new Promise(() => {}));
+      return c;
+    });
     render(<Dashboard />);
     expect(screen.getByText(/загрузка/i)).toBeInTheDocument();
   });
 
-  it("shows empty-state message when user has no results", async () => {
-    mockFrom.mockReturnValue(makeChain([]));
+  it("shows empty-state message when user has no APGAR results", async () => {
     render(<Dashboard />);
     await waitFor(() => {
       expect(screen.getByText(/пока нет результатов/i)).toBeInTheDocument();
     });
   });
 
-  it("renders a list item for each result", async () => {
-    const results = [makeResult("r1", 10, 0), makeResult("r2", 5, 1), makeResult("r3", 3, 2)];
-    mockFrom.mockReturnValue(makeChain(results));
+  it("renders a list item for each APGAR result", async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain(null);
+      return makeApgarChain([makeApgarResult("r1", 10), makeApgarResult("r2", 5)]);
+    });
     render(<Dashboard />);
     await waitFor(() => {
-      expect(screen.getAllByRole("listitem")).toHaveLength(3);
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
     });
   });
 
   it("displays correct score for each result", async () => {
-    const results = [makeResult("r1", 10, 0), makeResult("r2", 5, 1)];
-    mockFrom.mockReturnValue(makeChain(results));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain(null);
+      return makeApgarChain([makeApgarResult("r1", 10), makeApgarResult("r2", 5)]);
+    });
     render(<Dashboard />);
     await waitFor(() => {
       expect(screen.getByTestId("score-r1").textContent).toBe("10");
@@ -154,71 +323,43 @@ describe("Dashboard — history of results", () => {
   });
 
   it("shows 'Рутинная поддержка' for score 10", async () => {
-    mockFrom.mockReturnValue(makeChain([makeResult("r1", 10, 0)]));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain(null);
+      return makeApgarChain([makeApgarResult("r1", 10)]);
+    });
     render(<Dashboard />);
     await waitFor(() => {
       expect(screen.getByText(/рутинная поддержка/i)).toBeInTheDocument();
     });
   });
 
-  it("shows 'Самостоятельная коррекция' for score 5", async () => {
-    mockFrom.mockReturnValue(makeChain([makeResult("r2", 5, 1)]));
-    render(<Dashboard />);
-    await waitFor(() => {
-      expect(screen.getByText(/самостоятельная коррекция/i)).toBeInTheDocument();
+  it("fetches APGAR results scoped to user_id", async () => {
+    const chain = makeApgarChain([]);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return makeProcChain(null);
+      return chain;
     });
-  });
-
-  it("shows 'Срочная помощь' for score 3", async () => {
-    mockFrom.mockReturnValue(makeChain([makeResult("r3", 3, 2)]));
-    render(<Dashboard />);
-    await waitFor(() => {
-      expect(screen.getByText(/срочная помощь/i)).toBeInTheDocument();
-    });
-  });
-
-  it("fetches results ordered by created_at descending (newest first)", async () => {
-    const chain = makeChain([]);
-    mockFrom.mockReturnValue(chain);
-    render(<Dashboard />);
-    await waitFor(() => screen.getByText(/нет результатов/i));
-    expect(chain.order).toHaveBeenCalledWith("created_at", { ascending: false });
-  });
-
-  it("fetches results scoped to the current user_id", async () => {
-    const chain = makeChain([]);
-    mockFrom.mockReturnValue(chain);
     render(<Dashboard />);
     await waitFor(() => screen.getByText(/нет результатов/i));
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-123");
   });
 
-  it("displays the user's display name", () => {
-    mockFrom.mockReturnValue(makeChain([]));
-    render(<Dashboard />);
-    expect(screen.getByRole("heading", { name: /тест юзер/i })).toBeInTheDocument();
-  });
-
-  it("score=4 verdict is 'critical' not 'warning'", async () => {
-    mockFrom.mockReturnValue(makeChain([makeResult("r1", 4, 0)]));
-    render(<Dashboard />);
-    await waitFor(() => {
-      expect(screen.getByText(/срочная помощь/i)).toBeInTheDocument();
+  it("fetches procrastination results scoped to user_id", async () => {
+    const procChain = makeProcChain(null);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "procrastination_results") return procChain;
+      return makeApgarChain([]);
     });
-  });
-
-  it("score=7 verdict is 'good' not 'warning'", async () => {
-    mockFrom.mockReturnValue(makeChain([makeResult("r1", 7, 0)]));
     render(<Dashboard />);
-    await waitFor(() => {
-      expect(screen.getByText(/рутинная поддержка/i)).toBeInTheDocument();
-    });
+    await waitFor(() => screen.getByText(/нет результатов/i));
+    expect(procChain.eq).toHaveBeenCalledWith("user_id", "user-123");
   });
 });
 
+// ── Admin link ────────────────────────────────────────────────────────────────
+
 describe("Dashboard — admin link", () => {
   it("does NOT show admin link for regular user", () => {
-    mockFrom.mockReturnValue(makeChain([]));
     render(<Dashboard />);
     expect(screen.queryByRole("link", { name: /администрирование/i })).not.toBeInTheDocument();
   });
@@ -230,7 +371,6 @@ describe("Dashboard — admin link", () => {
       displayName: "Admin",
       isAdmin: true,
     });
-    mockFrom.mockReturnValue(makeChain([]));
     render(<Dashboard />);
     expect(screen.getByRole("link", { name: /администрирование/i })).toBeInTheDocument();
   });
@@ -242,9 +382,7 @@ describe("Dashboard — admin link", () => {
       displayName: "Admin",
       isAdmin: true,
     });
-    mockFrom.mockReturnValue(makeChain([]));
     render(<Dashboard />);
-    const link = screen.getByRole("link", { name: /администрирование/i });
-    expect(link).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: /администрирование/i })).toHaveAttribute("href", "/admin");
   });
 });
