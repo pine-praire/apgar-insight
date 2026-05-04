@@ -118,7 +118,7 @@ function Dashboard() {
             style={{ boxShadow: "var(--shadow-soft)" }}
           >
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Тип прокрастинации
+              Тип прокрастинатора
             </p>
             {lastProcrastination ? (
               <>

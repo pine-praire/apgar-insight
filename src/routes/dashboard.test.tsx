@@ -100,7 +100,7 @@ function Dashboard() {
 
       {/* Procrastination card */}
       <section aria-label="Прокрастинация карточка">
-        <p>Тип прокрастинации</p>
+        <p>Тип прокрастинатора</p>
         {lastProcrastination ? (
           <>
             {(lastProcrastination.types as ProcrastinationType[]).map((t) => (
