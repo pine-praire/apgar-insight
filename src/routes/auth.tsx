@@ -14,7 +14,7 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-type View = "login" | "signup" | "forgot";
+type View = "login" | "signup" | "forgot" | "check_email";
 
 function AuthPage() {
   const { mode } = Route.useSearch();
@@ -52,7 +52,7 @@ function AuthPage() {
           },
         });
         if (error) throw error;
-        toast.success("Регистрация успешна!");
+        setView("check_email");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -69,12 +69,14 @@ function AuthPage() {
     login: "Вход",
     signup: "Регистрация",
     forgot: "Восстановление пароля",
+    check_email: "Проверьте почту",
   };
 
   const subtitles: Record<View, string> = {
     login: "Войдите, чтобы продолжить",
     signup: "Создайте аккаунт, чтобы пройти тест",
     forgot: "Введите email — мы пришлём ссылку для сброса пароля",
+    check_email: "",
   };
 
   return (
@@ -90,9 +92,23 @@ function AuthPage() {
           ← На главную
         </Link>
         <h1 className="mt-4 text-3xl font-bold">{titles[view]}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{subtitles[view]}</p>
+        {subtitles[view] && (
+          <p className="mt-2 text-sm text-muted-foreground">{subtitles[view]}</p>
+        )}
 
-        <form onSubmit={submit} className="mt-6 space-y-4">
+        {view === "check_email" && (
+          <div className="mt-6 space-y-4">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Мы отправили письмо на <span className="font-medium text-foreground">{email}</span>.
+              Перейдите по ссылке в письме, чтобы подтвердить аккаунт и войти.
+            </p>
+            <Button className="w-full" onClick={() => setView("login")}>
+              Вернуться ко входу
+            </Button>
+          </div>
+        )}
+
+        {view !== "check_email" && <form onSubmit={submit} className="mt-6 space-y-4">
           {view === "signup" && (
             <div>
               <Label htmlFor="name">Имя</Label>
@@ -160,9 +176,9 @@ function AuthPage() {
                   ? "Зарегистрироваться"
                   : "Войти"}
           </Button>
-        </form>
+        </form>}
 
-        {view !== "forgot" ? (
+        {view !== "forgot" && view !== "check_email" ? (
           <button
             onClick={() => setView(view === "signup" ? "login" : "signup")}
             className="mt-6 w-full text-sm text-muted-foreground hover:text-foreground"

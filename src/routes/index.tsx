@@ -29,9 +29,10 @@ function Landing() {
           <Activity className="h-8 w-8" />
         </div>
         <h1 className="text-5xl font-bold tracking-tight md:text-6xl">
-          APGAR-тест <span className="text-primary">для взрослых</span>
+          САМОВЫВОЗ
         </h1>
-        <p className="mt-6 max-w-2xl text-lg text-muted-foreground">
+        <p className="mt-3 text-xl font-medium text-primary">APGAR-тест для взрослых</p>
+        <p className="mt-4 max-w-2xl text-lg text-muted-foreground">
           Экспресс-тест вашего стрессового состояния по методике APGAR. 5 параметров,
           каждый оценивается от 0 до 2. Максимум 10 баллов.
         </p>
