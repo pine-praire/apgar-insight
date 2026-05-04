@@ -38,24 +38,6 @@ export type Database = {
         }
         Relationships: []
       }
-      profiles: {
-        Row: {
-          created_at: string
-          display_name: string | null
-          id: string
-        }
-        Insert: {
-          created_at?: string
-          display_name?: string | null
-          id: string
-        }
-        Update: {
-          created_at?: string
-          display_name?: string | null
-          id?: string
-        }
-        Relationships: []
-      }
       procrastination_results: {
         Row: {
           created_at: string
@@ -74,6 +56,24 @@ export type Database = {
           id?: string
           types?: string[]
           user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
         }
         Relationships: []
       }

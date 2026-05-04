@@ -19,11 +19,6 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ResultIdRouteImport } from './routes/result.$id'
 
-const ProcrastinationRoute = ProcrastinationRouteImport.update({
-  id: '/procrastination',
-  path: '/procrastination',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TestRoute = TestRouteImport.update({
   id: '/test',
   path: '/test',
@@ -32,6 +27,11 @@ const TestRoute = TestRouteImport.update({
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProcrastinationRoute = ProcrastinationRouteImport.update({
+  id: '/procrastination',
+  path: '/procrastination',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -149,13 +149,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/procrastination': {
-      id: '/procrastination'
-      path: '/procrastination'
-      fullPath: '/procrastination'
-      preLoaderRoute: typeof ProcrastinationRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/test': {
       id: '/test'
       path: '/test'
@@ -168,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/procrastination': {
+      id: '/procrastination'
+      path: '/procrastination'
+      fullPath: '/procrastination'
+      preLoaderRoute: typeof ProcrastinationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
