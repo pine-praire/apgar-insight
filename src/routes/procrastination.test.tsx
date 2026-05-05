@@ -8,26 +8,31 @@ import {
   type ProcrastinationType,
 } from "@/lib/procrastination";
 
-// ── Mock state ────────────────────────────────────────────────────────────────
+// ── Firebase mocks ────────────────────────────────────────────────────────────
 
 const mockNavigate = vi.fn();
-const mockInsert = vi.fn();
-const mockGetSession = vi.fn();
-const mockUseAuth = vi.fn();
+const mockAddDoc = vi.fn();
+const mockCurrentUser = { uid: "user-1" };
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (opts: unknown) => opts,
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
-    <a href={to}>{children}</a>
-  ),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: () => ({ insert: mockInsert }),
-    auth: { getSession: mockGetSession },
-  },
+vi.mock("firebase/firestore", () => ({
+  collection: vi.fn().mockReturnValue("col-ref"),
+  addDoc: (...args: unknown[]) => mockAddDoc(...args),
+}));
+
+vi.mock("firebase/auth", () => ({
+  getAuth: vi.fn().mockReturnValue({}),
+  onAuthStateChanged: vi.fn(),
+}));
+
+vi.mock("@/integrations/firebase/client", () => ({
+  auth: { get currentUser() { return mockCurrentUser; } },
+  db: {},
 }));
 
 vi.mock("@/lib/auth", () => ({ useAuth: () => mockUseAuth() }));
@@ -36,8 +41,8 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const SESSION = { session: { user: { id: "user-1" } } };
-const LOGGED_IN = { user: { id: "user-1" }, loading: false };
+const mockUseAuth = vi.fn();
+const LOGGED_IN = { user: { uid: "user-1" }, loading: false };
 const LOGGED_OUT = { user: null, loading: false };
 const LOADING = { user: null, loading: true };
 
@@ -71,9 +76,8 @@ function ProcrastinationTestPage() {
     }
     const types = calculateProcrastinationResult(newAnswers);
     setSubmitting(true);
-    const { session } = (await mockGetSession()).data ?? {};
-    if (!session) { setSubmitting(false); return; }
-    await mockInsert({ user_id: session.user.id, types });
+    if (!mockCurrentUser) { setSubmitting(false); mockNavigate({ to: "/auth", search: { mode: "login" } }); return; }
+    await mockAddDoc("col-ref", { userId: mockCurrentUser.uid, types });
     setSubmitting(false);
     setResult(types);
   };
@@ -100,11 +104,7 @@ function ProcrastinationTestPage() {
               <h2 data-testid="result-title">{info.title}</h2>
               <p data-testid="result-description">{info.description}</p>
               <p data-testid="result-insight">{info.insight}</p>
-              <ul>
-                {info.tools.map((tool, i) => (
-                  <li key={i} data-testid="result-tool">{tool}</li>
-                ))}
-              </ul>
+              <ul>{info.tools.map((tool, i) => <li key={i} data-testid="result-tool">{tool}</li>)}</ul>
             </div>
           );
         })}
@@ -132,11 +132,7 @@ function ProcrastinationTestPage() {
         ))}
       </ul>
       <button onClick={back}>Назад</button>
-      <button
-        data-testid="next-btn"
-        onClick={next}
-        disabled={!selected || submitting}
-      >
+      <button data-testid="next-btn" onClick={next} disabled={!selected || submitting}>
         {step === total - 1 ? "Завершить" : "Далее"}
       </button>
     </div>
@@ -148,8 +144,7 @@ function ProcrastinationTestPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockUseAuth.mockReturnValue(LOGGED_IN);
-  mockGetSession.mockResolvedValue({ data: SESSION });
-  mockInsert.mockResolvedValue({ data: null, error: null });
+  mockAddDoc.mockResolvedValue({ id: "new-doc-id" });
 });
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
@@ -183,9 +178,7 @@ describe("ProcrastinationTestPage — question display", () => {
 
   it("shows the first question text", () => {
     render(<ProcrastinationTestPage />);
-    expect(screen.getByTestId("question-text").textContent).toBe(
-      PROCRASTINATION_QUESTIONS[0].text,
-    );
+    expect(screen.getByTestId("question-text").textContent).toBe(PROCRASTINATION_QUESTIONS[0].text);
   });
 
   it("renders exactly 4 options for the first question", () => {
@@ -240,9 +233,7 @@ describe("ProcrastinationTestPage — navigation", () => {
     render(<ProcrastinationTestPage />);
     fireEvent.click(screen.getByTestId("option-0"));
     fireEvent.click(screen.getByTestId("next-btn"));
-    expect(screen.getByTestId("question-text").textContent).toBe(
-      PROCRASTINATION_QUESTIONS[1].text,
-    );
+    expect(screen.getByTestId("question-text").textContent).toBe(PROCRASTINATION_QUESTIONS[1].text);
   });
 
   it("selection is cleared after advancing", () => {
@@ -283,33 +274,31 @@ describe("ProcrastinationTestPage — submission", () => {
     }
   };
 
-  it("calls supabase insert after completing all questions", async () => {
+  it("calls addDoc after completing all questions", async () => {
     completeTest(0);
-    await waitFor(() => expect(mockInsert).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockAddDoc).toHaveBeenCalledTimes(1));
   });
 
-  it("inserts with user_id from session", async () => {
+  it("inserts with user_id from currentUser", async () => {
     completeTest(0);
     await waitFor(() => {
-      const [insertArg] = mockInsert.mock.calls[0];
-      expect(insertArg.user_id).toBe("user-1");
+      const [, payload] = mockAddDoc.mock.calls[0];
+      expect(payload.userId).toBe("user-1");
     });
   });
 
   it("inserts a non-empty types array", async () => {
     completeTest(0);
     await waitFor(() => {
-      const [insertArg] = mockInsert.mock.calls[0];
-      expect(Array.isArray(insertArg.types)).toBe(true);
-      expect(insertArg.types.length).toBeGreaterThan(0);
+      const [, payload] = mockAddDoc.mock.calls[0];
+      expect(Array.isArray(payload.types)).toBe(true);
+      expect(payload.types.length).toBeGreaterThan(0);
     });
   });
 
   it("shows result screen after submission", async () => {
     completeTest(0);
-    await waitFor(() => {
-      expect(screen.getByTestId("result-title")).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByTestId("result-title")).toBeInTheDocument());
   });
 });
 
@@ -317,16 +306,11 @@ describe("ProcrastinationTestPage — submission", () => {
 
 describe("ProcrastinationTestPage — result screen", () => {
   const goToResult = async (types: ProcrastinationType[]) => {
-    mockGetSession.mockResolvedValue({ data: SESSION });
-    mockInsert.mockResolvedValue({ data: null, error: null });
-
-    // Override calculateProcrastinationResult by rigging all 12 answers to produce desired type
     const firstTypeOption = (qIndex: number) => {
       const q = PROCRASTINATION_QUESTIONS[qIndex];
       const idx = q.options.findIndex((o) => types.includes(o.type));
       return idx >= 0 ? idx : 0;
     };
-
     render(<ProcrastinationTestPage />);
     const total = PROCRASTINATION_QUESTIONS.length;
     for (let i = 0; i < total; i++) {
@@ -361,25 +345,6 @@ describe("ProcrastinationTestPage — result screen", () => {
     expect(screen.getAllByTestId("result-tool")).toHaveLength(3);
   });
 
-  it("shows 'У вас два ведущих типа' when two types tie", async () => {
-    // Force a tie by making calculateProcrastinationResult return two types
-    // Pick options that spread evenly across two types
-    render(<ProcrastinationTestPage />);
-    // manually set result by rendering result screen indirectly
-    // We test the tie label by checking that when result has length>1 the header shows
-    // Actually with the inline component the tie depends on answer distribution
-    // Let's just verify the tie case directly by checking the component renders 2 result blocks
-    // We'll set this up by picking alternating options targeting two types
-    // cleaner appears in q1(opt0), q4(opt0), q6(opt0), q8(opt0), q11(opt1), q12(opt3)
-    // panicker appears in q1(opt1), q2(opt1), q5(opt1), q7(opt1), q9(opt1), q12(opt1)
-    // So if we alternate perfectly it may or may not produce a tie — this is hard to guarantee
-    // without mocking calculateProcrastinationResult, so just verify tie header render logic:
-    // that 'У вас два ведущих типа' text appears only when result.length > 1
-    // We do this by checking the inline component source logic directly, which we already do
-    // via unit tests on calculateProcrastinationResult. Mark this as a smoke test.
-    expect(true).toBe(true); // structural assertion; covered by lib tests
-  });
-
   it("'Пройти снова' restarts the test", async () => {
     await goToResult(["cleaner"]);
     fireEvent.click(screen.getByText("Пройти снова"));
@@ -388,47 +353,36 @@ describe("ProcrastinationTestPage — result screen", () => {
 
   it("'На главную' link points to /dashboard", async () => {
     await goToResult(["cleaner"]);
-    const link = screen.getByRole("link", { name: "На главную" });
-    expect(link).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: "На главную" })).toHaveAttribute("href", "/dashboard");
   });
 });
 
 // ── Tie header ────────────────────────────────────────────────────────────────
 
-describe("ProcrastinationTestPage — tie header renders for multi-type result", () => {
+describe("ProcrastinationTestPage — tie header", () => {
   it("shows tie header when result contains two types", async () => {
-    // Intercept insert call and simulate two-type result by controlling session mock
-    // We'll use a spy on calculateProcrastinationResult instead
     const procLib = await import("@/lib/procrastination");
-    const spy = vi.spyOn(procLib, "calculateProcrastinationResult")
-      .mockReturnValueOnce(["cleaner", "panicker"]);
-
+    const spy = vi.spyOn(procLib, "calculateProcrastinationResult").mockReturnValueOnce(["cleaner", "panicker"]);
     render(<ProcrastinationTestPage />);
     const total = PROCRASTINATION_QUESTIONS.length;
     for (let i = 0; i < total; i++) {
       fireEvent.click(screen.getByTestId("option-0"));
       fireEvent.click(screen.getByTestId("next-btn"));
     }
-    await waitFor(() =>
-      expect(screen.getByText("У вас два ведущих типа")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("У вас два ведущих типа")).toBeInTheDocument());
     spy.mockRestore();
   });
 
   it("shows two result blocks when two types tie", async () => {
     const procLib = await import("@/lib/procrastination");
-    const spy = vi.spyOn(procLib, "calculateProcrastinationResult")
-      .mockReturnValueOnce(["cleaner", "panicker"]);
-
+    const spy = vi.spyOn(procLib, "calculateProcrastinationResult").mockReturnValueOnce(["cleaner", "panicker"]);
     render(<ProcrastinationTestPage />);
     const total = PROCRASTINATION_QUESTIONS.length;
     for (let i = 0; i < total; i++) {
       fireEvent.click(screen.getByTestId("option-0"));
       fireEvent.click(screen.getByTestId("next-btn"));
     }
-    await waitFor(() => {
-      expect(screen.getAllByTestId("result-title")).toHaveLength(2);
-    });
+    await waitFor(() => expect(screen.getAllByTestId("result-title")).toHaveLength(2));
     spy.mockRestore();
   });
 });

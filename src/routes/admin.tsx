@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { getVerdict } from "@/lib/apgar";
-import { ChevronDown, ChevronRight, Shield, Users, ClipboardList, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronRight, Shield, Users, ClipboardList, TrendingUp, UserCheck, UserX } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/admin")({
   component: AdminPage,
@@ -12,15 +14,16 @@ export const Route = createFileRoute("/admin")({
 interface AdminUser {
   id: string;
   email: string;
-  display_name: string | null;
-  created_at: string;
+  displayName: string | null;
+  createdAt: string;
+  isAdmin: boolean;
 }
 
 interface AdminResult {
   id: string;
-  user_id: string;
+  userId: string;
   score: number;
-  created_at: string;
+  createdAt: string;
 }
 
 function AdminPage() {
@@ -32,7 +35,6 @@ function AdminPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
-  // Auth guard — redirect non-admins immediately
   useEffect(() => {
     if (loading) return;
     if (!user) { navigate({ to: "/auth", search: { mode: "login" } }); return; }
@@ -44,26 +46,58 @@ function AdminPage() {
 
     const fetchData = async () => {
       setFetching(true);
-      const [usersRes, resultsRes] = await Promise.all([
-        supabase.rpc("get_admin_users"),
-        supabase.from("apgar_results").select("id, user_id, score, created_at").order("created_at", { ascending: false }),
-      ]);
+      try {
+        const [usersSnap, resultsSnap, rolesSnap] = await Promise.all([
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "apgar_results")),
+          getDocs(collection(db, "user_roles")),
+        ]);
 
-      if (usersRes.error) {
-        setError(usersRes.error.message);
-      } else {
-        setUsers(usersRes.data as AdminUser[]);
+        const adminUids = new Set(
+          rolesSnap.docs
+            .filter((d) => d.data().role === "admin")
+            .map((d) => d.id),
+        );
+
+        const userList: AdminUser[] = usersSnap.docs.map((d) => ({
+          id: d.id,
+          email: d.data().email ?? "",
+          displayName: d.data().displayName ?? null,
+          createdAt: d.data().createdAt ?? "",
+          isAdmin: adminUids.has(d.id),
+        }));
+        userList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+        const resultList: AdminResult[] = resultsSnap.docs.map((d) => ({
+          id: d.id,
+          userId: d.data().userId,
+          score: d.data().score,
+          createdAt: d.data().createdAt ?? "",
+        }));
+        resultList.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+        setUsers(userList);
+        setResults(resultList);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Ошибка загрузки");
+      } finally {
+        setFetching(false);
       }
-
-      if (!resultsRes.error) {
-        setResults(resultsRes.data as AdminResult[]);
-      }
-
-      setFetching(false);
     };
 
     fetchData();
   }, [user, isAdmin]);
+
+  const toggleAdmin = async (u: AdminUser) => {
+    if (u.isAdmin) {
+      await deleteDoc(doc(db, "user_roles", u.id));
+    } else {
+      await setDoc(doc(db, "user_roles", u.id), { role: "admin" });
+    }
+    setUsers((prev) =>
+      prev.map((p) => (p.id === u.id ? { ...p, isAdmin: !p.isAdmin } : p)),
+    );
+  };
 
   if (loading || !user || !isAdmin) return null;
 
@@ -75,7 +109,7 @@ function AdminPage() {
     });
 
   const resultsByUser = results.reduce<Record<string, AdminResult[]>>((acc, r) => {
-    (acc[r.user_id] ??= []).push(r);
+    (acc[r.userId] ??= []).push(r);
     return acc;
   }, {});
 
@@ -131,7 +165,6 @@ function AdminPage() {
           ))}
         </div>
 
-        {/* Error state */}
         {error && (
           <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
             {error}
@@ -139,10 +172,7 @@ function AdminPage() {
         )}
 
         {/* Users table */}
-        <div
-          className="rounded-2xl border bg-card"
-          style={{ boxShadow: "var(--shadow-elegant)" }}
-        >
+        <div className="rounded-2xl border bg-card" style={{ boxShadow: "var(--shadow-elegant)" }}>
           <div className="border-b px-6 py-4">
             <h2 className="font-semibold">Пользователи</h2>
           </div>
@@ -150,9 +180,7 @@ function AdminPage() {
           {fetching ? (
             <div className="px-6 py-8 text-center text-sm text-muted-foreground">Загрузка...</div>
           ) : users.length === 0 ? (
-            <div className="px-6 py-8 text-center text-sm text-muted-foreground">
-              Нет пользователей
-            </div>
+            <div className="px-6 py-8 text-center text-sm text-muted-foreground">Нет пользователей</div>
           ) : (
             <ul>
               {users.map((u) => {
@@ -162,23 +190,17 @@ function AdminPage() {
 
                 return (
                   <li key={u.id} className="border-b last:border-0">
-                    {/* User row */}
-                    <button
-                      onClick={() => toggle(u.id)}
-                      className="flex w-full items-center gap-4 px-6 py-4 text-left transition-colors hover:bg-accent/40"
-                    >
+                    <div className="flex w-full items-center gap-4 px-6 py-4">
                       {/* Avatar */}
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-sm text-primary">
-                        {(u.display_name ?? u.email).slice(0, 2).toUpperCase()}
-                      </div>
-
-                      {/* Name + email */}
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium leading-tight">
-                          {u.display_name ?? "—"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                      </div>
+                      <button onClick={() => toggle(u.id)} className="flex items-center gap-4 flex-1 text-left min-w-0">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent font-semibold text-sm text-primary">
+                          {(u.displayName ?? u.email).slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium leading-tight">{u.displayName ?? "—"}</p>
+                          <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                        </div>
+                      </button>
 
                       {/* Tests count */}
                       <div className="hidden shrink-0 text-right sm:block">
@@ -189,21 +211,25 @@ function AdminPage() {
                       </div>
 
                       {/* Latest score */}
-                      {latest ? (
-                        <ScoreBadge score={latest.score} />
-                      ) : (
+                      {latest ? <ScoreBadge score={latest.score} /> : (
                         <span className="shrink-0 text-xs text-muted-foreground">нет тестов</span>
                       )}
 
+                      {/* Admin toggle */}
+                      <Button
+                        size="sm"
+                        variant={u.isAdmin ? "destructive" : "outline"}
+                        className="shrink-0 gap-1.5 text-xs"
+                        onClick={() => toggleAdmin(u)}
+                      >
+                        {u.isAdmin ? <><UserX className="h-3.5 w-3.5" /> Убрать</> : <><UserCheck className="h-3.5 w-3.5" /> Админ</>}
+                      </Button>
+
                       {/* Expand chevron */}
-                      <div className="shrink-0 text-muted-foreground">
-                        {isExpanded ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </div>
-                    </button>
+                      <button onClick={() => toggle(u.id)} className="shrink-0 text-muted-foreground">
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </button>
+                    </div>
 
                     {/* Expanded: test history */}
                     {isExpanded && (
@@ -218,17 +244,9 @@ function AdminPage() {
                             {userResults.map((r) => {
                               const v = getVerdict(r.score);
                               return (
-                                <li
-                                  key={r.id}
-                                  className="flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-accent/40"
-                                >
+                                <li key={r.id} className="flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-accent/40">
                                   <span className="text-muted-foreground">
-                                    {new Date(r.created_at).toLocaleString("ru-RU", {
-                                      day: "numeric",
-                                      month: "long",
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
+                                    {new Date(r.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
                                   </span>
                                   <div className="flex items-center gap-3">
                                     <span className="text-xs text-muted-foreground">{v.short}</span>
@@ -248,9 +266,8 @@ function AdminPage() {
           )}
         </div>
 
-        {/* Registration date column legend */}
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          Показаны все зарегистрированные пользователи · Данные защищены политиками RLS
+          Показаны все зарегистрированные пользователи · Firebase Firestore
         </p>
       </div>
     </div>
@@ -259,18 +276,9 @@ function AdminPage() {
 
 function ScoreBadge({ score, compact = false }: { score: number; compact?: boolean }) {
   const v = getVerdict(score);
-  const color =
-    v.level === "good"
-      ? "var(--success)"
-      : v.level === "warning"
-        ? "var(--warning)"
-        : "var(--destructive)";
-
+  const color = v.level === "good" ? "var(--success)" : v.level === "warning" ? "var(--warning)" : "var(--destructive)";
   return (
-    <span
-      className={`shrink-0 font-bold ${compact ? "text-lg" : "text-2xl"}`}
-      style={{ color }}
-    >
+    <span className={`shrink-0 font-bold ${compact ? "text-lg" : "text-2xl"}`} style={{ color }}>
       {score}
       {!compact && <span className="text-xs font-normal text-muted-foreground">/10</span>}
     </span>

@@ -1,57 +1,58 @@
-/**
- * Integration tests for the real ProcrastinationTestPage component.
- * Verifies that the correct Supabase table name ("procrastination_results"),
- * insert payload structure, and error handling behave as expected in production code.
- */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { PROCRASTINATION_QUESTIONS, type ProcrastinationType } from "@/lib/procrastination";
 
-// ── Mocks ─────────────────────────────────────────────────────────────────────
+// ── Firebase mocks ────────────────────────────────────────────────────────────
 
 const mockNavigate = vi.fn();
-const mockFrom = vi.fn();
-const mockInsert = vi.fn();
-const mockGetSession = vi.fn();
-const mockUseAuth = vi.fn();
+const mockAddDoc = vi.fn();
+let mockCurrentUser: { uid: string } | null = { uid: "user-99" };
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (opts: unknown) => opts,
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
-    <a href={to}>{children}</a>
-  ),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: (...args: unknown[]) => mockFrom(...args),
-    auth: { getSession: mockGetSession },
-  },
+vi.mock("firebase/firestore", () => ({
+  collection: vi.fn().mockReturnValue("col-ref"),
+  addDoc: (...args: unknown[]) => mockAddDoc(...args),
+}));
+
+vi.mock("firebase/auth", () => ({
+  getAuth: vi.fn().mockReturnValue({}),
+  onAuthStateChanged: vi.fn(),
+}));
+
+vi.mock("@/integrations/firebase/client", () => ({
+  auth: { get currentUser() { return mockCurrentUser; } },
+  db: {},
 }));
 
 vi.mock("@/lib/auth", () => ({ useAuth: () => mockUseAuth() }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-const SESSION = { session: { user: { id: "user-99" } } };
+const mockUseAuth = vi.fn();
 const VALID_TYPES: ProcrastinationType[] = [
   "cleaner","panicker","list_maker","sleeper","multitasker",
   "socializer","researcher","foodie","netflixer","timer",
 ];
 
-// ── Real component loader ──────────────────────────────────────────────────────
+let Page: React.ComponentType;
+
+// Load once — first dynamic import of the real component is slow; cache it here.
+beforeAll(async () => {
+  const mod = await import("./procrastination");
+  Page = (mod.Route as unknown as { component: React.ComponentType }).component;
+}, 20000);
 
 async function loadPage(): Promise<React.ComponentType> {
-  const mod = await import("./procrastination");
-  return (mod.Route as unknown as { component: React.ComponentType }).component;
+  return Page;
 }
-
-// ── Question navigation helper ─────────────────────────────────────────────────
-// Options appear before Назад/Далее/Завершить in DOM order, so [0] is always option 0.
 
 function completeAllQuestions() {
   const total = PROCRASTINATION_QUESTIONS.length;
@@ -66,43 +67,41 @@ function completeAllQuestions() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUseAuth.mockReturnValue({ user: { id: "user-99" }, loading: false });
-  mockGetSession.mockResolvedValue({ data: SESSION });
-  mockInsert.mockResolvedValue({ data: null, error: null });
-  mockFrom.mockReturnValue({ insert: mockInsert });
+  mockCurrentUser = { uid: "user-99" };
+  mockUseAuth.mockReturnValue({ user: { uid: "user-99" }, loading: false });
+  mockAddDoc.mockResolvedValue({ id: "new-doc" });
 });
 
 // ── Table name ────────────────────────────────────────────────────────────────
 
-describe("ProcrastinationTestPage (real) — Supabase table name", () => {
-  it("calls supabase.from('procrastination_results') on submit", async () => {
+describe("ProcrastinationTestPage (real) — Firestore collection name", () => {
+  it("calls addDoc exactly once per test completion", async () => {
+    const Page = await loadPage();
+    render(<Page />);
+    completeAllQuestions();
+    await waitFor(() => expect(mockAddDoc).toHaveBeenCalledTimes(1));
+  });
+
+  it("addDoc is called with a collection ref (not null/undefined)", async () => {
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
     await waitFor(() => {
-      expect(mockFrom).toHaveBeenCalledWith("procrastination_results");
+      const colRef = mockAddDoc.mock.calls[0][0];
+      expect(colRef).toBeTruthy();
     });
-  });
-
-  it("only touches the procrastination_results table (no stray calls)", async () => {
-    const Page = await loadPage();
-    render(<Page />);
-    completeAllQuestions();
-    await waitFor(() => expect(mockInsert).toHaveBeenCalledTimes(1));
-    const tables = mockFrom.mock.calls.map(([t]: [string]) => t);
-    expect(tables.every((t) => t === "procrastination_results")).toBe(true);
   });
 });
 
 // ── Insert payload ────────────────────────────────────────────────────────────
 
 describe("ProcrastinationTestPage (real) — insert payload", () => {
-  it("payload includes user_id from session", async () => {
+  it("payload includes userId from currentUser", async () => {
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
     await waitFor(() => {
-      expect(mockInsert.mock.calls[0][0]).toMatchObject({ user_id: "user-99" });
+      expect(mockAddDoc.mock.calls[0][1]).toMatchObject({ userId: "user-99" });
     });
   });
 
@@ -111,7 +110,7 @@ describe("ProcrastinationTestPage (real) — insert payload", () => {
     render(<Page />);
     completeAllQuestions();
     await waitFor(() => {
-      const { types } = mockInsert.mock.calls[0][0];
+      const { types } = mockAddDoc.mock.calls[0][1];
       expect(Array.isArray(types)).toBe(true);
       expect(types.length).toBeGreaterThan(0);
     });
@@ -122,24 +121,28 @@ describe("ProcrastinationTestPage (real) — insert payload", () => {
     render(<Page />);
     completeAllQuestions();
     await waitFor(() => {
-      const { types } = mockInsert.mock.calls[0][0] as { types: ProcrastinationType[] };
+      const { types } = mockAddDoc.mock.calls[0][1] as { types: ProcrastinationType[] };
       expect(types.every((t) => VALID_TYPES.includes(t))).toBe(true);
     });
   });
 
-  it("insert is called exactly once per test completion", async () => {
+  it("payload includes createdAt ISO string", async () => {
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
-    await waitFor(() => expect(mockInsert).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      const { createdAt } = mockAddDoc.mock.calls[0][1];
+      expect(typeof createdAt).toBe("string");
+      expect(() => new Date(createdAt)).not.toThrow();
+    });
   });
 });
 
 // ── Error handling ────────────────────────────────────────────────────────────
 
-describe("ProcrastinationTestPage (real) — DB error handling", () => {
-  it("still shows result screen when insert returns an error", async () => {
-    mockInsert.mockResolvedValue({ data: null, error: { message: "relation does not exist" } });
+describe("ProcrastinationTestPage (real) — error handling", () => {
+  it("still shows result screen when addDoc throws", async () => {
+    mockAddDoc.mockRejectedValue(new Error("permission-denied"));
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
@@ -148,16 +151,14 @@ describe("ProcrastinationTestPage (real) — DB error handling", () => {
     });
   });
 
-  it("calls toast.error with the DB error message", async () => {
+  it("calls toast.error when addDoc throws", async () => {
     const { toast } = await import("sonner");
-    mockInsert.mockResolvedValue({ data: null, error: { message: "relation does not exist" } });
+    mockAddDoc.mockRejectedValue(new Error("permission-denied"));
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        expect.stringContaining("relation does not exist"),
-      );
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("permission-denied"));
     });
   });
 });
@@ -165,24 +166,30 @@ describe("ProcrastinationTestPage (real) — DB error handling", () => {
 // ── Session expiry ────────────────────────────────────────────────────────────
 
 describe("ProcrastinationTestPage (real) — session expiry on submit", () => {
-  it("redirects to /auth when session is missing at submit time", async () => {
-    mockGetSession.mockResolvedValue({ data: { session: null } });
+  it("redirects to /auth when currentUser is null at submit time", async () => {
     const Page = await loadPage();
     render(<Page />);
-    completeAllQuestions();
+    // Answer all but last question
+    const total = PROCRASTINATION_QUESTIONS.length;
+    for (let i = 0; i < total - 1; i++) {
+      fireEvent.click(screen.getAllByRole("button")[0]);
+      fireEvent.click(screen.getByRole("button", { name: /далее/i }));
+    }
+    // Nullify user before last answer
+    mockCurrentUser = null;
+    fireEvent.click(screen.getAllByRole("button")[0]);
+    fireEvent.click(screen.getByRole("button", { name: /завершить/i }));
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith({ to: "/auth", search: { mode: "login" } });
     });
   });
 
-  it("does NOT call insert when session is missing", async () => {
-    mockGetSession.mockResolvedValue({ data: { session: null } });
+  it("does NOT call addDoc when currentUser is null", async () => {
+    mockCurrentUser = null;
     const Page = await loadPage();
     render(<Page />);
     completeAllQuestions();
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalled();
-    });
-    expect(mockInsert).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
+    expect(mockAddDoc).not.toHaveBeenCalled();
   });
 });

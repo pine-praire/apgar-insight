@@ -2,7 +2,8 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { supabase } from "@/integrations/supabase/client";
+import { collection, addDoc } from "firebase/firestore";
+import { auth, db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import {
@@ -47,26 +48,28 @@ function ProcrastinationTestPage() {
       return;
     }
 
-    // Last question — calculate and save
     const types = calculateProcrastinationResult(newAnswers);
     setSubmitting(true);
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
       setSubmitting(false);
       toast.error("Сессия истекла. Войдите снова.");
       navigate({ to: "/auth", search: { mode: "login" } });
       return;
     }
 
-    const { error } = await supabase
-      .from("procrastination_results")
-      .insert({ user_id: sessionData.session.user.id, types });
-
-    setSubmitting(false);
-    if (error) {
-      console.error("[procrastination_results insert]", error);
-      toast.error(`Не удалось сохранить: ${error.message}`);
+    try {
+      await addDoc(collection(db, "procrastination_results"), {
+        userId: currentUser.uid,
+        types,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error("[procrastination_results insert]", err);
+      toast.error(err instanceof Error ? err.message : "Не удалось сохранить");
+    } finally {
+      setSubmitting(false);
     }
 
     setResult(types);
@@ -103,16 +106,12 @@ function ProcrastinationTestPage() {
                   key={i}
                   onClick={() => setSelected(opt.type)}
                   className={`flex w-full items-start gap-4 rounded-xl border-2 p-4 text-left transition-all ${
-                    isSelected
-                      ? "border-primary bg-accent"
-                      : "border-border hover:border-primary/50"
+                    isSelected ? "border-primary bg-accent" : "border-border hover:border-primary/50"
                   }`}
                 >
                   <span
                     className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
-                      isSelected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
+                      isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {String.fromCharCode(65 + i)}
@@ -150,13 +149,7 @@ function ProcrastinationTestPage() {
   );
 }
 
-function ResultScreen({
-  types,
-  onRestart,
-}: {
-  types: ProcrastinationType[];
-  onRestart: () => void;
-}) {
+function ResultScreen({ types, onRestart }: { types: ProcrastinationType[]; onRestart: () => void }) {
   const isTie = types.length > 1;
 
   return (
@@ -171,23 +164,16 @@ function ResultScreen({
         {types.map((type) => {
           const info = PROCRASTINATION_TYPES[type];
           return (
-            <div
-              key={type}
-              className="rounded-2xl border bg-card p-8"
-              style={{ boxShadow: "var(--shadow-elegant)" }}
-            >
+            <div key={type} className="rounded-2xl border bg-card p-8" style={{ boxShadow: "var(--shadow-elegant)" }}>
               <div className="text-center">
                 <div className="text-6xl">{info.emoji}</div>
                 <h2 className="mt-3 text-3xl font-bold">{info.title}</h2>
               </div>
-
               <p className="mt-6 text-muted-foreground leading-relaxed">{info.description}</p>
-
               <div className="mt-6 rounded-xl bg-accent/60 p-4">
                 <p className="text-sm font-semibold mb-1">Что это значит</p>
                 <p className="text-sm text-muted-foreground leading-relaxed">{info.insight}</p>
               </div>
-
               <div className="mt-6">
                 <p className="font-semibold mb-3">Что поможет</p>
                 <ul className="space-y-3">

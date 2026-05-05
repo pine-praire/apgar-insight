@@ -1,7 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { signOut } from "firebase/auth";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { auth, db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { getVerdict } from "@/lib/apgar";
 import { PROCRASTINATION_TYPES, type ProcrastinationType } from "@/lib/procrastination";
@@ -16,13 +18,13 @@ interface ApgarResult {
   id: string;
   score: number;
   scores: Record<string, number>;
-  created_at: string;
+  createdAt: string;
 }
 
 interface ProcResult {
   id: string;
   types: string[];
-  created_at: string;
+  createdAt: string;
 }
 
 function Dashboard() {
@@ -39,25 +41,23 @@ function Dashboard() {
   useEffect(() => {
     if (!user) return;
     Promise.all([
-      supabase
-        .from("apgar_results")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("procrastination_results")
-        .select("id, types, created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false }),
-    ]).then(([apgarRes, procRes]) => {
-      setResults((apgarRes.data as unknown as ApgarResult[]) ?? []);
-      setProcResults((procRes.data as unknown as ProcResult[]) ?? []);
+      getDocs(query(collection(db, "apgar_results"), where("userId", "==", user.uid))),
+      getDocs(query(collection(db, "procrastination_results"), where("userId", "==", user.uid))),
+    ]).then(([apgarSnap, procSnap]) => {
+      const apgar = apgarSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<ApgarResult, "id">) }))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const proc = procSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<ProcResult, "id">) }))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setResults(apgar);
+      setProcResults(proc);
       setLoadingResults(false);
     });
   }, [user]);
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    await signOut(auth);
     navigate({ to: "/" });
   };
 
@@ -65,6 +65,9 @@ function Dashboard() {
 
   const latestApgar = results[0];
   const latestProc = procResults[0];
+
+  // ApgarCircle expects created_at field name
+  const circleResults = results.map((r) => ({ score: r.score, created_at: r.createdAt }));
 
   return (
     <div className="min-h-screen" style={{ background: "var(--gradient-soft)" }}>
@@ -124,7 +127,7 @@ function Dashboard() {
                         </h2>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        {new Date(latestProc.created_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                        {new Date(latestProc.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
                       </p>
                       <div className="mt-auto pt-5">
                         <Button asChild size="sm" variant="outline" className="w-full">
@@ -162,7 +165,7 @@ function Dashboard() {
                           <li key={r.id} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
                             <div>
                               <p className="text-xs text-muted-foreground">
-                                {new Date(r.created_at).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+                                {new Date(r.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
                               </p>
                               <p className="mt-0.5 text-sm font-medium">
                                 {types.map((t) => PROCRASTINATION_TYPES[t]?.title).join(" + ")}
@@ -185,7 +188,7 @@ function Dashboard() {
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 Трекер этого месяца
               </h2>
-              <ApgarCircle results={results} />
+              <ApgarCircle results={circleResults} />
             </div>
 
             {/* APGAR history */}
@@ -203,7 +206,7 @@ function Dashboard() {
                       <li key={r.id} className="flex items-center justify-between rounded-xl border bg-card px-5 py-4">
                         <div>
                           <p className="text-sm text-muted-foreground">
-                            {new Date(r.created_at).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+                            {new Date(r.createdAt).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
                           </p>
                           <p className="mt-0.5 font-medium">{v.short}</p>
                         </div>
@@ -248,9 +251,7 @@ function Dashboard() {
                     );
                   })()}
 
-                  {latestApgar && latestProc && (
-                    <div className="border-t" />
-                  )}
+                  {latestApgar && latestProc && <div className="border-t" />}
 
                   {latestProc && (() => {
                     const types = latestProc.types as ProcrastinationType[];

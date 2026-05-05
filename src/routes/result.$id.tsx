@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { APGAR_QUESTIONS, getVerdict, type ApgarKey } from "@/lib/apgar";
 
@@ -24,39 +25,24 @@ function ResultPage() {
 
   useEffect(() => {
     if (!user) return;
-    supabase
-      .from("apgar_results")
-      .select("score, scores")
-      .eq("id", id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data) setData(data as { score: number; scores: Record<ApgarKey, number> });
-      });
+    getDoc(doc(db, "apgar_results", id)).then((snap) => {
+      if (snap.exists()) {
+        setData(snap.data() as { score: number; scores: Record<ApgarKey, number> });
+      }
+    });
   }, [id, user]);
 
   if (!data) return null;
   const v = getVerdict(data.score);
   const accent =
-    v.level === "good"
-      ? "var(--success)"
-      : v.level === "warning"
-        ? "var(--warning)"
-        : "var(--destructive)";
+    v.level === "good" ? "var(--success)" : v.level === "warning" ? "var(--warning)" : "var(--destructive)";
 
   return (
     <div className="min-h-screen px-4 py-12" style={{ background: "var(--gradient-soft)" }}>
       <div className="mx-auto max-w-2xl">
-        <div
-          className="rounded-2xl border bg-card p-10 text-center"
-          style={{ boxShadow: "var(--shadow-elegant)" }}
-        >
-          <p className="text-sm uppercase tracking-wider text-muted-foreground">
-            Ваш результат
-          </p>
-          <div
-            className="mt-4 text-8xl font-bold"
-            style={{ color: accent }}
-          >
+        <div className="rounded-2xl border bg-card p-10 text-center" style={{ boxShadow: "var(--shadow-elegant)" }}>
+          <p className="text-sm uppercase tracking-wider text-muted-foreground">Ваш результат</p>
+          <div className="mt-4 text-8xl font-bold" style={{ color: accent }}>
             {data.score}
             <span className="text-3xl text-muted-foreground">/10</span>
           </div>
@@ -81,14 +67,7 @@ function ResultPage() {
                   </div>
                   <span
                     className="text-2xl font-bold"
-                    style={{
-                      color:
-                        val === 2
-                          ? "var(--success)"
-                          : val === 1
-                            ? "var(--warning)"
-                            : "var(--destructive)",
-                    }}
+                    style={{ color: val === 2 ? "var(--success)" : val === 1 ? "var(--warning)" : "var(--destructive)" }}
                   >
                     {val}
                   </span>

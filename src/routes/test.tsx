@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { APGAR_QUESTIONS, type ApgarKey } from "@/lib/apgar";
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
+import { collection, addDoc } from "firebase/firestore";
+import { auth, db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -37,11 +37,10 @@ function TestPage() {
       setStep(step + 1);
       return;
     }
-    // submit
     setSubmitting(true);
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
       setSubmitting(false);
       toast.error("Сессия истекла. Войдите снова.");
       navigate({ to: "/auth", search: { mode: "login" } });
@@ -53,38 +52,33 @@ function TestPage() {
       acc[qq.key] = answers[qq.key] ?? 0;
       return acc;
     }, {});
-    const { data, error } = await supabase
-      .from("apgar_results")
-      .insert({ user_id: sessionData.session.user.id, score, scores: scores as Json })
-      .select("id")
-      .single();
-    setSubmitting(false);
-    if (error) {
-      console.error("[apgar_results insert]", error);
-      toast.error(`Не удалось сохранить: ${error.message}`);
-      return;
+
+    try {
+      const docRef = await addDoc(collection(db, "apgar_results"), {
+        userId: currentUser.uid,
+        score,
+        scores,
+        createdAt: new Date().toISOString(),
+      });
+      navigate({ to: "/result/$id", params: { id: docRef.id } });
+    } catch (err) {
+      console.error("[apgar_results insert]", err);
+      toast.error(err instanceof Error ? err.message : "Не удалось сохранить");
+    } finally {
+      setSubmitting(false);
     }
-    navigate({ to: "/result/$id", params: { id: data.id } });
   };
 
   return (
-    <div
-      className="min-h-screen px-4 py-12"
-      style={{ background: "var(--gradient-soft)" }}
-    >
+    <div className="min-h-screen px-4 py-12" style={{ background: "var(--gradient-soft)" }}>
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Вопрос {step + 1} из {total}
-          </span>
+          <span>Вопрос {step + 1} из {total}</span>
           <span className="font-mono text-primary">{q.letter}</span>
         </div>
         <Progress value={progress} className="mb-8" />
 
-        <div
-          className="rounded-2xl border bg-card p-8"
-          style={{ boxShadow: "var(--shadow-elegant)" }}
-        >
+        <div className="rounded-2xl border bg-card p-8" style={{ boxShadow: "var(--shadow-elegant)" }}>
           <h2 className="text-2xl font-bold">{q.title}</h2>
           <p className="mt-2 text-muted-foreground">{q.subtitle}</p>
           <p className="mt-1 text-sm text-muted-foreground">{q.description}</p>
@@ -95,20 +89,14 @@ function TestPage() {
               return (
                 <button
                   key={opt.value}
-                  onClick={() =>
-                    setAnswers({ ...answers, [q.key]: opt.value })
-                  }
+                  onClick={() => setAnswers({ ...answers, [q.key]: opt.value })}
                   className={`flex w-full items-start gap-4 rounded-xl border-2 p-4 text-left transition-all ${
-                    selected
-                      ? "border-primary bg-accent"
-                      : "border-border hover:border-primary/50"
+                    selected ? "border-primary bg-accent" : "border-border hover:border-primary/50"
                   }`}
                 >
                   <span
                     className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-bold ${
-                      selected
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
+                      selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {opt.value}

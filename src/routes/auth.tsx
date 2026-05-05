@@ -3,7 +3,14 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+} from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/integrations/firebase/client";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 
@@ -14,7 +21,7 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-type View = "login" | "signup" | "forgot" | "check_email";
+type View = "login" | "signup" | "forgot";
 
 function AuthPage() {
   const { mode } = Route.useSearch();
@@ -36,26 +43,21 @@ function AuthPage() {
     setBusy(true);
     try {
       if (view === "forgot") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
-        if (error) throw error;
+        await sendPasswordResetEmail(auth, email);
         toast.success("Письмо отправлено — проверьте почту");
         setView("login");
       } else if (view === "signup") {
-        const { error } = await supabase.auth.signUp({
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        const displayName = name || email.split("@")[0];
+        await updateProfile(cred.user, { displayName });
+        await setDoc(doc(db, "users", cred.user.uid), {
           email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
-            data: { display_name: name || email.split("@")[0] },
-          },
+          displayName,
+          createdAt: new Date().toISOString(),
         });
-        if (error) throw error;
-        setView("check_email");
+        toast.success("Добро пожаловать!");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, email, password);
         toast.success("С возвращением!");
       }
     } catch (err) {
@@ -69,14 +71,12 @@ function AuthPage() {
     login: "Вход",
     signup: "Регистрация",
     forgot: "Восстановление пароля",
-    check_email: "Проверьте почту",
   };
 
   const subtitles: Record<View, string> = {
     login: "Войдите, чтобы продолжить",
     signup: "Создайте аккаунт, чтобы пройти тест",
     forgot: "Введите email — мы пришлём ссылку для сброса пароля",
-    check_email: "",
   };
 
   return (
@@ -92,23 +92,9 @@ function AuthPage() {
           ← На главную
         </Link>
         <h1 className="mt-4 text-3xl font-bold">{titles[view]}</h1>
-        {subtitles[view] && (
-          <p className="mt-2 text-sm text-muted-foreground">{subtitles[view]}</p>
-        )}
+        <p className="mt-2 text-sm text-muted-foreground">{subtitles[view]}</p>
 
-        {view === "check_email" && (
-          <div className="mt-6 space-y-4">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Мы отправили письмо на <span className="font-medium text-foreground">{email}</span>.
-              Перейдите по ссылке в письме, чтобы подтвердить аккаунт и войти.
-            </p>
-            <Button className="w-full" onClick={() => setView("login")}>
-              Вернуться ко входу
-            </Button>
-          </div>
-        )}
-
-        {view !== "check_email" && <form onSubmit={submit} className="mt-6 space-y-4">
+        <form onSubmit={submit} className="mt-6 space-y-4">
           {view === "signup" && (
             <div>
               <Label htmlFor="name">Имя</Label>
@@ -158,10 +144,7 @@ function AuthPage() {
           {view === "signup" && (
             <p className="text-xs text-muted-foreground">
               Регистрируясь, вы соглашаетесь с нашей{" "}
-              <Link
-                to="/privacy"
-                className="text-primary underline underline-offset-2"
-              >
+              <Link to="/privacy" className="text-primary underline underline-offset-2">
                 Политикой конфиденциальности
               </Link>
             </p>
@@ -176,9 +159,9 @@ function AuthPage() {
                   ? "Зарегистрироваться"
                   : "Войти"}
           </Button>
-        </form>}
+        </form>
 
-        {view !== "forgot" && view !== "check_email" ? (
+        {view !== "forgot" ? (
           <button
             onClick={() => setView(view === "signup" ? "login" : "signup")}
             className="mt-6 w-full text-sm text-muted-foreground hover:text-foreground"
