@@ -13,7 +13,7 @@ export const APGAR_QUESTIONS: ApgarQuestion[] = [
   {
     key: "A1",
     letter: "A",
-    title: "Ampiriens — внешний вид",
+    title: "Appearance — внешний вид",
     subtitle: "Насколько вы выглядите больным, истощённым, уставшим?",
     description: "Обратите внимание на взгляд, жестикуляцию, речь.",
     options: [
@@ -25,7 +25,7 @@ export const APGAR_QUESTIONS: ApgarQuestion[] = [
   {
     key: "P",
     letter: "P",
-    title: "Performans — продуктивность",
+    title: "Performance — продуктивность",
     subtitle: "Как справляетесь с рабочими задачами?",
     description: "Стресс, дедлайны, перегрузка — оцените текущее состояние.",
     options: [
@@ -49,7 +49,7 @@ export const APGAR_QUESTIONS: ApgarQuestion[] = [
   {
     key: "A2",
     letter: "A",
-    title: "Affekt control — контроль эмоций",
+    title: "Affect control — контроль эмоций",
     subtitle: "Справляетесь ли с негативом?",
     description: "Или каждая мелочь выбивает из колеи?",
     options: [

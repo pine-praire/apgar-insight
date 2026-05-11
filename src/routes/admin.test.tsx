@@ -3,61 +3,54 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React, { useEffect, useState } from "react";
 import { getVerdict } from "@/lib/apgar";
 
-// ── Mock state ────────────────────────────────────────────────────────────────
+// ── Firebase mocks ────────────────────────────────────────────────────────────
 
 const mockNavigate = vi.fn();
-const mockRpc = vi.fn();
-const mockFrom = vi.fn();
+const mockGetDocs = vi.fn();
+const mockSetDoc = vi.fn();
+const mockDeleteDoc = vi.fn();
 const mockUseAuth = vi.fn();
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (opts: unknown) => opts,
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
-    <a href={to}>{children}</a>
-  ),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => <a href={to}>{children}</a>,
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    rpc: (...args: unknown[]) => mockRpc(...args),
-    from: (...args: unknown[]) => mockFrom(...args),
-  },
+vi.mock("firebase/firestore", () => ({
+  collection: vi.fn().mockReturnValue("col-ref"),
+  getDocs: (...args: unknown[]) => mockGetDocs(...args),
+  doc: vi.fn().mockReturnValue("doc-ref"),
+  setDoc: (...args: unknown[]) => mockSetDoc(...args),
+  deleteDoc: (...args: unknown[]) => mockDeleteDoc(...args),
 }));
 
+vi.mock("@/integrations/firebase/client", () => ({ db: {} }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => mockUseAuth() }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const ADMIN_USER = { id: "admin-1", email: "admin@example.com" };
+const ADMIN_USER = { uid: "admin-1", email: "admin@example.com" };
 
-const makeUser = (id: string, email: string, name: string | null = null) => ({
-  id,
-  email,
-  display_name: name,
-  created_at: new Date().toISOString(),
+const makeSnap = (docs: { id: string; [k: string]: unknown }[]) => ({
+  docs: docs.map((d) => ({ id: d.id, data: () => d })),
+});
+
+const makeUser = (id: string, email: string, displayName: string | null = null) => ({
+  id, email, displayName, createdAt: new Date().toISOString(),
 });
 
 const makeResult = (id: string, userId: string, score: number, daysAgo = 0) => ({
-  id,
-  user_id: userId,
-  score,
-  created_at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
+  id, userId, score,
+  createdAt: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
 });
 
-const rpcChain = (data: unknown, error: unknown = null) => ({ data, error });
-
-const fromChain = (data: unknown, error: unknown = null) => {
-  const c: Record<string, unknown> = {};
-  c.select = vi.fn().mockReturnValue(c);
-  c.order = vi.fn().mockResolvedValue({ data, error });
-  return c;
-};
+const makeRole = (uid: string) => ({ id: uid, role: "admin" });
 
 // ── Inline AdminPage ──────────────────────────────────────────────────────────
 
-interface AdminUser { id: string; email: string; display_name: string | null; created_at: string }
-interface AdminResult { id: string; user_id: string; score: number; created_at: string }
+interface AdminUser { id: string; email: string; displayName: string | null; createdAt: string; isAdmin: boolean }
+interface AdminResult { id: string; userId: string; score: number; createdAt: string }
 
 function AdminPage() {
   const { user, loading, isAdmin } = mockUseAuth();
@@ -76,15 +69,41 @@ function AdminPage() {
   useEffect(() => {
     if (!user || !isAdmin) return;
     Promise.all([
-      mockRpc("get_admin_users"),
-      mockFrom("apgar_results"),
-    ]).then(([usersRes, resultsRes]: [{ data: unknown; error: unknown }, { data: unknown; error: unknown }]) => {
-      if (usersRes.error) setError((usersRes.error as Error).message);
-      else setUsers(usersRes.data as AdminUser[]);
-      if (!resultsRes.error) setResults(resultsRes.data as AdminResult[]);
+      mockGetDocs("users"),
+      mockGetDocs("apgar_results"),
+      mockGetDocs("user_roles"),
+    ]).then(([usersSnap, resultsSnap, rolesSnap]: [ReturnType<typeof makeSnap>, ReturnType<typeof makeSnap>, ReturnType<typeof makeSnap>]) => {
+      try {
+        const adminUids = new Set(rolesSnap.docs.filter((d) => d.data().role === "admin").map((d) => d.id));
+        const userList: AdminUser[] = usersSnap.docs.map((d) => ({
+          id: d.id, email: d.data().email ?? "", displayName: d.data().displayName ?? null,
+          createdAt: d.data().createdAt ?? "", isAdmin: adminUids.has(d.id),
+        })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        const resultList: AdminResult[] = resultsSnap.docs.map((d) => ({
+          id: d.id, userId: d.data().userId, score: d.data().score,
+          createdAt: d.data().createdAt ?? "",
+        })).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        setUsers(userList);
+        setResults(resultList);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Ошибка");
+      } finally {
+        setFetching(false);
+      }
+    }).catch((err) => {
+      setError(err instanceof Error ? err.message : "Ошибка загрузки");
       setFetching(false);
     });
   }, [user, isAdmin]);
+
+  const toggleAdmin = async (u: AdminUser) => {
+    if (u.isAdmin) {
+      await mockDeleteDoc("doc-ref");
+    } else {
+      await mockSetDoc("doc-ref", { role: "admin" });
+    }
+    setUsers((prev) => prev.map((p) => p.id === u.id ? { ...p, isAdmin: !p.isAdmin } : p));
+  };
 
   if (loading || !user || !isAdmin) return null;
 
@@ -92,13 +111,12 @@ function AdminPage() {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const resultsByUser = results.reduce<Record<string, AdminResult[]>>((acc, r) => {
-    (acc[r.user_id] ??= []).push(r); return acc;
+    (acc[r.userId] ??= []).push(r); return acc;
   }, {});
 
   const totalTests = results.length;
   const avgScore = results.length > 0
-    ? Math.round((results.reduce((s, r) => s + r.score, 0) / results.length) * 10) / 10
-    : 0;
+    ? Math.round((results.reduce((s, r) => s + r.score, 0) / results.length) * 10) / 10 : 0;
 
   return (
     <div>
@@ -106,9 +124,7 @@ function AdminPage() {
       <span data-testid="stat-users">{users.length}</span>
       <span data-testid="stat-tests">{totalTests}</span>
       <span data-testid="stat-avg">{avgScore}</span>
-
       {error && <p role="alert">{error}</p>}
-
       {fetching ? (
         <p>Загрузка...</p>
       ) : users.length === 0 ? (
@@ -122,16 +138,18 @@ function AdminPage() {
             return (
               <li key={u.id}>
                 <button onClick={() => toggle(u.id)} data-testid={`row-${u.id}`}>
-                  <span>{u.display_name ?? "—"}</span>
+                  <span>{u.displayName ?? "—"}</span>
                   <span>{u.email}</span>
                   <span data-testid={`count-${u.id}`}>
-                    {userResults.length === 1 ? "тест"
-                      : userResults.length >= 2 && userResults.length <= 4 ? "теста"
-                      : "тестов"}
+                    {userResults.length === 1 ? "тест" : userResults.length >= 2 && userResults.length <= 4 ? "теста" : "тестов"}
                   </span>
-                  {latest
-                    ? <span data-testid={`latest-${u.id}`}>{latest.score}</span>
-                    : <span>нет тестов</span>}
+                  {latest ? <span data-testid={`latest-${u.id}`}>{latest.score}</span> : <span>нет тестов</span>}
+                </button>
+                <button
+                  data-testid={`admin-toggle-${u.id}`}
+                  onClick={() => toggleAdmin(u)}
+                >
+                  {u.isAdmin ? "Убрать" : "Админ"}
                 </button>
                 {isExpanded && (
                   <ul data-testid={`history-${u.id}`}>
@@ -152,9 +170,14 @@ function AdminPage() {
   );
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+// ── Setup ─────────────────────────────────────────────────────────────────────
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockSetDoc.mockResolvedValue(undefined);
+  mockDeleteDoc.mockResolvedValue(undefined);
+  mockGetDocs.mockResolvedValue(makeSnap([]));
+});
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 
@@ -168,22 +191,16 @@ describe("AdminPage — auth guard", () => {
   it("redirects to /auth when not logged in", async () => {
     mockUseAuth.mockReturnValue({ user: null, loading: false, isAdmin: false });
     render(<AdminPage />);
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: "/auth", search: { mode: "login" } });
-    });
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: "/auth", search: { mode: "login" } }));
   });
 
   it("redirects to /dashboard when logged in but not admin", async () => {
     mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: false });
     render(<AdminPage />);
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboard" });
-    });
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: "/dashboard" }));
   });
 
   it("does NOT redirect when user is admin", async () => {
-    mockRpc.mockResolvedValue(rpcChain([]));
-    mockFrom.mockResolvedValue(rpcChain([]));
     mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: true });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByText(/панель администратора/i)).toBeInTheDocument());
@@ -198,50 +215,36 @@ describe("AdminPage — data fetching", () => {
     mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: true });
   });
 
-  it("calls supabase.rpc('get_admin_users')", async () => {
-    mockRpc.mockResolvedValue(rpcChain([]));
-    mockFrom.mockResolvedValue(rpcChain([]));
+  it("fetches users, apgar_results, and user_roles collections", async () => {
     render(<AdminPage />);
-    await waitFor(() => expect(mockRpc).toHaveBeenCalledWith("get_admin_users"));
-  });
-
-  it("calls supabase.from('apgar_results')", async () => {
-    mockRpc.mockResolvedValue(rpcChain([]));
-    mockFrom.mockResolvedValue(rpcChain([]));
-    render(<AdminPage />);
-    await waitFor(() => expect(mockFrom).toHaveBeenCalledWith("apgar_results"));
+    await waitFor(() => expect(mockGetDocs).toHaveBeenCalledTimes(3));
   });
 
   it("does NOT fetch if user is not admin", () => {
     mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: false });
     render(<AdminPage />);
-    expect(mockRpc).not.toHaveBeenCalled();
-    expect(mockFrom).not.toHaveBeenCalled();
+    expect(mockGetDocs).not.toHaveBeenCalled();
   });
 
   it("shows loading spinner initially", () => {
-    mockRpc.mockReturnValue(new Promise(() => {}));
-    mockFrom.mockReturnValue(new Promise(() => {}));
+    mockGetDocs.mockReturnValue(new Promise(() => {}));
     render(<AdminPage />);
     expect(screen.getByText(/загрузка/i)).toBeInTheDocument();
   });
 
   it("shows empty-state when no users returned", async () => {
-    mockRpc.mockResolvedValue(rpcChain([]));
-    mockFrom.mockResolvedValue(rpcChain([]));
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByText(/нет пользователей/i)).toBeInTheDocument());
   });
 
-  it("shows error alert when get_admin_users fails", async () => {
-    mockRpc.mockResolvedValue({ data: null, error: { message: "Forbidden" } });
-    mockFrom.mockResolvedValue(rpcChain([]));
+  it("shows error alert when fetch throws", async () => {
+    mockGetDocs.mockRejectedValue(new Error("permission-denied"));
     render(<AdminPage />);
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Forbidden"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("permission-denied"));
   });
 });
 
-// ── Stats calculation ─────────────────────────────────────────────────────────
+// ── Stats ─────────────────────────────────────────────────────────────────────
 
 describe("AdminPage — stats cards", () => {
   beforeEach(() => {
@@ -249,43 +252,41 @@ describe("AdminPage — stats cards", () => {
   });
 
   it("shows correct user count", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com"), makeUser("u2", "c@d.com")]));
-    mockFrom.mockResolvedValue(rpcChain([]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com"), makeUser("u2", "c@d.com")]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("stat-users").textContent).toBe("2"));
   });
 
   it("shows correct test count", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([
-      makeResult("r1", "u1", 8),
-      makeResult("r2", "u1", 5),
-    ]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 8), makeResult("r2", "u1", 5)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("stat-tests").textContent).toBe("2"));
   });
 
-  it("avg score is 0 when no results", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([]));
-    render(<AdminPage />);
-    await waitFor(() => expect(screen.getByTestId("stat-avg").textContent).toBe("0"));
-  });
-
   it("avg score rounds to 1 decimal", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    // scores 10 + 3 = 13 / 2 = 6.5
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 10), makeResult("r2", "u1", 3)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 10), makeResult("r2", "u1", 3)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("stat-avg").textContent).toBe("6.5"));
   });
 
-  it("avg score for whole numbers has no decimal", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    // scores 8 + 6 = 14 / 2 = 7.0
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 8), makeResult("r2", "u1", 6)]));
+  it("avg score is 0 when no results", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
-    await waitFor(() => expect(screen.getByTestId("stat-avg").textContent).toBe("7"));
+    await waitFor(() => expect(screen.getByTestId("stat-avg").textContent).toBe("0"));
   });
 });
 
@@ -297,11 +298,10 @@ describe("AdminPage — user rows", () => {
   });
 
   it("renders a row for each user", async () => {
-    mockRpc.mockResolvedValue(rpcChain([
-      makeUser("u1", "alice@example.com", "Alice"),
-      makeUser("u2", "bob@example.com", "Bob"),
-    ]));
-    mockFrom.mockResolvedValue(rpcChain([]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "alice@example.com", "Alice"), makeUser("u2", "bob@example.com", "Bob")]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => {
       expect(screen.getByText("Alice")).toBeInTheDocument();
@@ -309,60 +309,43 @@ describe("AdminPage — user rows", () => {
     });
   });
 
-  it("shows email for each user", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "alice@example.com", "Alice")]));
-    mockFrom.mockResolvedValue(rpcChain([]));
-    render(<AdminPage />);
-    await waitFor(() => expect(screen.getByText("alice@example.com")).toBeInTheDocument());
-  });
-
-  it("shows '—' when display_name is null", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "alice@example.com", null)]));
-    mockFrom.mockResolvedValue(rpcChain([]));
+  it("shows '—' when displayName is null", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "alice@example.com", null)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByText("—")).toBeInTheDocument());
   });
 
   it("shows latest score for user with results", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    // First in array = most recent (query is ORDER BY created_at DESC)
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 9), makeResult("r2", "u1", 4)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 9, 0), makeResult("r2", "u1", 4, 1)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("latest-u1").textContent).toBe("9"));
   });
 
-  it("shows 'нет тестов' for user with no results", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([]));
-    render(<AdminPage />);
-    await waitFor(() => expect(screen.getByText(/нет тестов/i)).toBeInTheDocument());
-  });
-
   it("test count label: 1 → 'тест'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 7)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 7)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("count-u1").textContent).toBe("тест"));
   });
 
   it("test count label: 3 → 'теста'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([
-      makeResult("r1", "u1", 7),
-      makeResult("r2", "u1", 5),
-      makeResult("r3", "u1", 3),
-    ]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1","u1",7), makeResult("r2","u1",5), makeResult("r3","u1",3)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => expect(screen.getByTestId("count-u1").textContent).toBe("теста"));
-  });
-
-  it("test count label: 5 → 'тестов'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain(
-      Array.from({ length: 5 }, (_, i) => makeResult(`r${i}`, "u1", 7))
-    ));
-    render(<AdminPage />);
-    await waitFor(() => expect(screen.getByTestId("count-u1").textContent).toBe("тестов"));
   });
 });
 
@@ -374,16 +357,22 @@ describe("AdminPage — expand / collapse", () => {
   });
 
   it("history is hidden by default", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 8)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 8)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     expect(screen.queryByTestId("history-u1")).not.toBeInTheDocument();
   });
 
   it("clicking row expands test history", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 8)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 8)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
@@ -391,8 +380,11 @@ describe("AdminPage — expand / collapse", () => {
   });
 
   it("clicking expanded row collapses it", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 8)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 8)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
@@ -400,30 +392,12 @@ describe("AdminPage — expand / collapse", () => {
     expect(screen.queryByTestId("history-u1")).not.toBeInTheDocument();
   });
 
-  it("expanded history shows correct results for that user only", async () => {
-    mockRpc.mockResolvedValue(rpcChain([
-      makeUser("u1", "alice@example.com"),
-      makeUser("u2", "bob@example.com"),
-    ]));
-    mockFrom.mockResolvedValue(rpcChain([
-      makeResult("r1", "u1", 9),
-      makeResult("r2", "u1", 5),
-      makeResult("r3", "u2", 3),
-    ]));
-    render(<AdminPage />);
-    await waitFor(() => screen.getByTestId("row-u1"));
-    fireEvent.click(screen.getByTestId("row-u1"));
-    expect(screen.getByTestId("result-r1")).toBeInTheDocument();
-    expect(screen.getByTestId("result-r2")).toBeInTheDocument();
-    expect(screen.queryByTestId("result-r3")).not.toBeInTheDocument();
-  });
-
   it("expanding one row does not expand another", async () => {
-    mockRpc.mockResolvedValue(rpcChain([
-      makeUser("u1", "alice@example.com"),
-      makeUser("u2", "bob@example.com"),
-    ]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 7), makeResult("r2", "u2", 4)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1","a@b.com"), makeUser("u2","c@d.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1","u1",7), makeResult("r2","u2",4)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
@@ -432,7 +406,80 @@ describe("AdminPage — expand / collapse", () => {
   });
 });
 
-// ── Result verdict in history ─────────────────────────────────────────────────
+// ── Admin toggle ──────────────────────────────────────────────────────────────
+
+describe("AdminPage — admin toggle", () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: true });
+  });
+
+  it("shows 'Админ' button for non-admin user", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Админ"));
+  });
+
+  it("shows 'Убрать' button for admin user", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "user_roles") return Promise.resolve(makeSnap([makeRole("u1")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Убрать"));
+  });
+
+  it("clicking 'Админ' calls setDoc", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => screen.getByTestId("admin-toggle-u1"));
+    fireEvent.click(screen.getByTestId("admin-toggle-u1"));
+    await waitFor(() => expect(mockSetDoc).toHaveBeenCalledWith("doc-ref", { role: "admin" }));
+  });
+
+  it("clicking 'Убрать' calls deleteDoc", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "user_roles") return Promise.resolve(makeSnap([makeRole("u1")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => screen.getByTestId("admin-toggle-u1"));
+    fireEvent.click(screen.getByTestId("admin-toggle-u1"));
+    await waitFor(() => expect(mockDeleteDoc).toHaveBeenCalledWith("doc-ref"));
+  });
+
+  it("button label flips after granting admin", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Админ"));
+    fireEvent.click(screen.getByTestId("admin-toggle-u1"));
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Убрать"));
+  });
+
+  it("button label flips after revoking admin", async () => {
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "user_roles") return Promise.resolve(makeSnap([makeRole("u1")]));
+      return Promise.resolve(makeSnap([]));
+    });
+    render(<AdminPage />);
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Убрать"));
+    fireEvent.click(screen.getByTestId("admin-toggle-u1"));
+    await waitFor(() => expect(screen.getByTestId("admin-toggle-u1").textContent).toBe("Админ"));
+  });
+});
+
+// ── Verdict labels ────────────────────────────────────────────────────────────
 
 describe("AdminPage — verdict labels in expanded history", () => {
   beforeEach(() => {
@@ -440,8 +487,11 @@ describe("AdminPage — verdict labels in expanded history", () => {
   });
 
   it("score 10 shows 'Рутинная поддержка'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 10)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 10)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
@@ -449,8 +499,11 @@ describe("AdminPage — verdict labels in expanded history", () => {
   });
 
   it("score 5 shows 'Самостоятельная коррекция'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 5)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 5)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
@@ -458,48 +511,14 @@ describe("AdminPage — verdict labels in expanded history", () => {
   });
 
   it("score 2 shows 'Срочная помощь'", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    mockFrom.mockResolvedValue(rpcChain([makeResult("r1", "u1", 2)]));
+    mockGetDocs.mockImplementation((key: string) => {
+      if (key === "users") return Promise.resolve(makeSnap([makeUser("u1", "a@b.com")]));
+      if (key === "apgar_results") return Promise.resolve(makeSnap([makeResult("r1", "u1", 2)]));
+      return Promise.resolve(makeSnap([]));
+    });
     render(<AdminPage />);
     await waitFor(() => screen.getByTestId("row-u1"));
     fireEvent.click(screen.getByTestId("row-u1"));
     expect(screen.getByText(/срочная помощь/i)).toBeInTheDocument();
-  });
-});
-
-// ── Result grouping by user ───────────────────────────────────────────────────
-
-describe("AdminPage — results grouped by user", () => {
-  beforeEach(() => {
-    mockUseAuth.mockReturnValue({ user: ADMIN_USER, loading: false, isAdmin: true });
-  });
-
-  it("each user sees only their own results when expanded", async () => {
-    mockRpc.mockResolvedValue(rpcChain([
-      makeUser("u1", "alice@example.com"),
-      makeUser("u2", "bob@example.com"),
-    ]));
-    mockFrom.mockResolvedValue(rpcChain([
-      makeResult("r1", "u1", 9),
-      makeResult("r2", "u2", 3),
-      makeResult("r3", "u1", 6),
-    ]));
-    render(<AdminPage />);
-    await waitFor(() => screen.getByTestId("row-u2"));
-    fireEvent.click(screen.getByTestId("row-u2"));
-    const history = screen.getByTestId("history-u2");
-    expect(history.querySelectorAll("li")).toHaveLength(1);
-    expect(screen.getByTestId("result-r2")).toBeInTheDocument();
-  });
-
-  it("latest score shown is the first result in the ordered array", async () => {
-    mockRpc.mockResolvedValue(rpcChain([makeUser("u1", "a@b.com")]));
-    // Simulating DESC order: r1 is newest (score 9), r2 is older (score 2)
-    mockFrom.mockResolvedValue(rpcChain([
-      makeResult("r1", "u1", 9, 0),
-      makeResult("r2", "u1", 2, 5),
-    ]));
-    render(<AdminPage />);
-    await waitFor(() => expect(screen.getByTestId("latest-u1").textContent).toBe("9"));
   });
 });

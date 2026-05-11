@@ -116,8 +116,8 @@ export function PrivacyPage() {
           <section>
             <h2 className="mb-3 text-lg font-semibold">6. Хранение и защита данных</h2>
             <p>
-              Ваши данные хранятся на серверах Supabase (облачная база данных PostgreSQL).
-              Supabase соответствует требованиям GDPR и обеспечивает шифрование данных при
+              Ваши данные хранятся на серверах Google Firebase (Firestore).
+              Firebase соответствует требованиям GDPR и обеспечивает шифрование данных при
               передаче (TLS) и в состоянии покоя.
             </p>
             <p className="mt-2">
@@ -135,7 +135,7 @@ export function PrivacyPage() {
             </p>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>
-                <strong>Supabase Inc.</strong> — поставщику инфраструктуры базы данных и
+                <strong>Google LLC (Firebase)</strong> — поставщику инфраструктуры базы данных и
                 аутентификации, действующему в качестве обработчика данных.
               </li>
               <li>

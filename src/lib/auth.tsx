@@ -27,15 +27,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      setLoading(false);
       if (u) {
         setDisplayName(u.displayName);
-        const roleSnap = await getDoc(doc(db, "user_roles", u.uid));
-        setIsAdmin(roleSnap.exists() && roleSnap.data()?.role === "admin");
+        try {
+          const roleSnap = await getDoc(doc(db, "user_roles", u.uid));
+          setIsAdmin(roleSnap.exists() && roleSnap.data()?.role === "admin");
+        } catch {
+          setIsAdmin(false);
+        }
       } else {
         setDisplayName(null);
         setIsAdmin(false);
       }
+      setLoading(false);
     });
     return unsub;
   }, []);

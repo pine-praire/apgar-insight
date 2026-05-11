@@ -100,16 +100,33 @@ function Dashboard() {
             {/* Test cards */}
             <div className="grid gap-4 sm:grid-cols-2 sm:items-start">
 
-              {/* APGAR card */}
-              <div className="rounded-2xl border bg-card p-6 flex flex-col" style={{ boxShadow: "var(--shadow-soft)" }}>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">APGAR-тест</p>
-                <h2 className="mt-2 text-lg font-semibold leading-tight">Оцените свой стресс</h2>
-                <p className="mt-1 text-sm text-muted-foreground">5 вопросов · около 2 минут</p>
-                <div className="mt-auto pt-5">
-                  <Button asChild size="sm" className="w-full">
-                    <Link to="/test"><Plus className="mr-2 h-4 w-4" /> Пройти тест</Link>
-                  </Button>
+              {/* Column 1: APGAR + Bingo */}
+              <div className="flex flex-col gap-4">
+
+                {/* APGAR card */}
+                <div className="rounded-2xl border bg-card p-6 flex flex-col" style={{ boxShadow: "var(--shadow-soft)" }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">APGAR-тест</p>
+                  <h2 className="mt-2 text-lg font-semibold leading-tight">Оцените свой стресс</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">5 вопросов · около 2 минут</p>
+                  <div className="mt-auto pt-5">
+                    <Button asChild size="sm" className="w-full">
+                      <Link to="/test"><Plus className="mr-2 h-4 w-4" /> Пройти тест</Link>
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Bingo card */}
+                <div className="rounded-2xl border bg-card p-6 flex flex-col" style={{ boxShadow: "var(--shadow-soft)" }}>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Выгорание</p>
+                  <h2 className="mt-2 text-lg font-semibold leading-tight">Burn out Бинго</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Отметь, что узнаёшь в себе</p>
+                  <div className="mt-auto pt-5">
+                    <Button asChild size="sm" variant="outline" className="w-full">
+                      <Link to="/bingo">Открыть бинго</Link>
+                    </Button>
+                  </div>
+                </div>
+
               </div>
 
               {/* Procrastination card + history */}
