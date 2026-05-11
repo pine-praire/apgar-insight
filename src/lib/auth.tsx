@@ -32,8 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDisplayName(u.displayName);
         try {
           const roleSnap = await getDoc(doc(db, "user_roles", u.uid));
-          setIsAdmin(roleSnap.exists() && roleSnap.data()?.role === "admin");
-        } catch {
+          const adminFlag = roleSnap.exists() && roleSnap.data()?.role === "admin";
+          console.log("[auth] role doc exists:", roleSnap.exists(), "| data:", roleSnap.data(), "| isAdmin:", adminFlag);
+          setIsAdmin(adminFlag);
+        } catch (err) {
+          console.error("[auth] failed to fetch user_roles:", err);
           setIsAdmin(false);
         }
       } else {
