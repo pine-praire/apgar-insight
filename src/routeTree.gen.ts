@@ -190,18 +190,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/bingo': {
-      id: '/bingo'
-      path: '/bingo'
-      fullPath: '/bingo'
-      preLoaderRoute: typeof BingoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bingo': {
+      id: '/bingo'
+      path: '/bingo'
+      fullPath: '/bingo'
+      preLoaderRoute: typeof BingoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
