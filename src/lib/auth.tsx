@@ -27,6 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      setLoading(false);
       if (u) {
         setDisplayName(u.displayName);
         try {
@@ -39,7 +40,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDisplayName(null);
         setIsAdmin(false);
       }
-      setLoading(false);
     });
     return unsub;
   }, []);
